@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" width="250" height="350">
+  <rect width="250" height="350" rx="15" fill="#ffffff" stroke="#ddd" stroke-width="2"/>
+  <text x="125" y="100" text-anchor="middle" font-family="serif" font-size="28" font-weight="bold" fill="#1a1a2e">JOKER</text>
+  <text x="125" y="200" text-anchor="middle" font-size="80">&#x1F0CF;</text>
+  <text x="125" y="300" text-anchor="middle" font-family="serif" font-size="28" font-weight="bold" fill="#1a1a2e">JOKER</text>
+</svg>
