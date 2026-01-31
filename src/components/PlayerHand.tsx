@@ -13,6 +13,7 @@ interface PlayerHandProps {
   isInteractive: boolean;
   showFaces: boolean;
   isWinner?: boolean;
+  disableBlur?: boolean;
 }
 
 export default function PlayerHand({
@@ -23,24 +24,29 @@ export default function PlayerHand({
   isInteractive,
   showFaces,
   isWinner = false,
+  disableBlur = false,
 }: PlayerHandProps) {
   const isVertical = position === 'west' || position === 'east';
   const cardSize = isVertical ? 'sm' : 'md';
 
+  const isActive = isCurrentTurn || disableBlur;
+
   return (
     <motion.div
-      className={`flex flex-col items-center gap-1 ${
-        isCurrentTurn ? 'opacity-100' : 'opacity-75'
-      }`}
-      animate={{ opacity: isCurrentTurn ? 1 : 0.75 }}
+      className={`flex flex-col items-center gap-1 transition-all duration-300 ${isActive ? 'opacity-100 blur-none z-10' : 'opacity-40 blur-[2px] grayscale-[0.5]'
+        }`}
+      animate={{
+        opacity: isActive ? 1 : 0.4,
+        filter: isActive ? 'blur(0px) grayscale(0%)' : 'blur(2px) grayscale(50%)',
+        scale: isActive ? 1.05 : 0.95
+      }}
     >
       {/* Player label */}
       <div
-        className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium mb-1 ${
-          isCurrentTurn
-            ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-600/50'
-            : 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/50'
-        } ${isWinner ? 'bg-amber-600/30 text-amber-300 border-amber-500/50' : ''}`}
+        className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium mb-1 ${isCurrentTurn
+          ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-600/50'
+          : 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/50'
+          } ${isWinner ? 'bg-amber-600/30 text-amber-300 border-amber-500/50' : ''}`}
       >
         {player.kind === 'ai' ? <Bot className="w-3 h-3" /> : <User className="w-3 h-3" />}
         <span>{player.name}</span>
@@ -72,14 +78,6 @@ export default function PlayerHand({
         ))}
       </div>
 
-      {/* Turn indicator */}
-      {isCurrentTurn && (
-        <motion.div
-          className="w-2 h-2 rounded-full bg-emerald-400 mt-1"
-          animate={{ scale: [1, 1.3, 1] }}
-          transition={{ duration: 1, repeat: Infinity }}
-        />
-      )}
     </motion.div>
   );
 }

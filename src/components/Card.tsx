@@ -26,11 +26,11 @@ function CardBack() {
         background: 'repeating-conic-gradient(#1a1a2e 0% 25%, #16213e 0% 50%) 50% / 16px 16px',
       }}
     >
-      <div className="absolute inset-2 rounded-lg border-2 border-red-500/40" />
-      <div className="flex flex-col items-center gap-0">
-        <span className="text-red-500 font-serif font-bold text-lg leading-none">7</span>
-        <span className="text-blue-900 font-serif font-bold text-xs leading-none">7</span>
-        <span className="text-red-500 font-serif font-bold text-lg leading-none">7</span>
+      <div className="absolute inset-2 rounded-lg border-2 border-red-500/20" />
+      <div className="flex flex-col items-center justify-center">
+        <span className="text-red-600/80 font-black tracking-[0.2em] text-xs sm:text-sm writing-mode-vertical rotate-180" style={{ writingMode: 'vertical-rl' }}>
+          TUJUH
+        </span>
       </div>
     </div>
   );

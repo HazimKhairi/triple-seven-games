@@ -24,7 +24,10 @@ import {
   Shuffle,
   Clock,
   Smile,
+  Pause,
+  Home,
 } from 'lucide-react';
+import PauseMenu from './PauseMenu';
 
 const EMOTES = ['😀', '🤔', '😱', '😡', '😎', '😭'];
 
@@ -76,6 +79,16 @@ export default function GameBoard() {
   const [powerDecision, setPowerDecision] = useState<{ type: 'discard' | 'swap', card?: CardType, handIndex?: number } | null>(null);
   const [showEmotes, setShowEmotes] = useState(false);
   const [dismissedPowerCardId, setDismissedPowerCardId] = useState<string | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+
+  // Play Joker sound when Mass Swap activates
+  useEffect(() => {
+    if (activePower === 'mass_swap') {
+      const audio = new Audio('/joker_laugh.mp3');
+      audio.volume = 0.5;
+      audio.play().catch(() => { });
+    }
+  }, [activePower]);
 
   const handleEmote = (emote: string) => {
     useGameStore.getState().addToast(`You: ${emote}`, 'info');
@@ -120,15 +133,7 @@ export default function GameBoard() {
   };
 
   const handleSwapWithHand = (handIndex: number, usePower: boolean = true) => {
-    // Intercept for power decision only if local
-    if (!isOnline && usePower) { // check if we need to verify power
-      const cardToDiscard = localPlayer.hand[handIndex];
-      const power = getCardPower(cardToDiscard);
-      if (power) {
-        setPowerDecision({ type: 'swap', card: cardToDiscard, handIndex });
-        return;
-      }
-    }
+    // No power interception for swap anymore
 
     playFlipSound();
     if (isOnline) {
@@ -379,11 +384,11 @@ export default function GameBoard() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.2 }}
-          onClick={() => { handleBackToMenu(); }}
+          onClick={() => { resetGame(); setPhase('menu'); }}
           className="relative z-10 flex items-center gap-2 py-3 px-6 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 transition-colors"
         >
-          <RotateCcw className="w-4 h-4" />
-          Play Again
+          <Home className="w-4 h-4" />
+          Back to Menu
         </motion.button>
       </div>
     );
@@ -483,6 +488,7 @@ export default function GameBoard() {
             isInteractive={canTargetPower}
             showFaces={false}
             isWinner={winnerSeat === northPlayer.seatIndex}
+            disableBlur={phase === 'power_target'}
           />
         </div>
 
@@ -496,6 +502,7 @@ export default function GameBoard() {
             isInteractive={canTargetPower}
             showFaces={false}
             isWinner={winnerSeat === westPlayer.seatIndex}
+            disableBlur={phase === 'power_target'}
           />
         </div>
 
@@ -516,11 +523,11 @@ export default function GameBoard() {
                   <div className="w-full h-full flex items-center justify-center"
                     style={{ background: 'repeating-conic-gradient(#1a1a2e 0% 25%, #16213e 0% 50%) 50% / 16px 16px' }}
                   >
-                    <div className="absolute inset-2 rounded-lg border-2 border-red-500/40" />
-                    <div className="flex flex-col items-center">
-                      <span className="text-red-500 font-serif font-bold text-lg leading-none">7</span>
-                      <span className="text-blue-900 font-serif font-bold text-xs leading-none">7</span>
-                      <span className="text-red-500 font-serif font-bold text-lg leading-none">7</span>
+                    <div className="absolute inset-2 rounded-lg border-2 border-red-500/20" />
+                    <div className="flex flex-col items-center justify-center">
+                      <span className="text-red-600/80 font-black tracking-[0.2em] text-xs sm:text-sm writing-mode-vertical rotate-180" style={{ writingMode: 'vertical-rl' }}>
+                        TUJUH
+                      </span>
                     </div>
                   </div>
                 ) : (
@@ -591,6 +598,7 @@ export default function GameBoard() {
             isInteractive={canTargetPower}
             showFaces={false}
             isWinner={winnerSeat === eastPlayer.seatIndex}
+            disableBlur={phase === 'power_target'}
           />
         </div>
 
@@ -604,6 +612,7 @@ export default function GameBoard() {
             isInteractive={canDecide || canTargetPower}
             showFaces={false}
             isWinner={winnerSeat === southPlayer.seatIndex}
+            disableBlur={phase === 'power_target'}
           />
         </div>
       </div>

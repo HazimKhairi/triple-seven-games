@@ -33,6 +33,7 @@ function generateToastId(): string {
 let _timerInterval: ReturnType<typeof setInterval> | null = null;
 
 const TURN_TIMER_SECONDS = 15;
+const PLAYER_TURN_TIMER_SECONDS = 45;
 
 interface GameActions {
   startGame: (config: GameConfig) => void;
@@ -49,9 +50,10 @@ interface GameActions {
   _startTimer: () => void;
   _clearTimer: () => void;
   _onTimerExpired: () => void;
-  addToast: (message: string, type?: Toast['type']) => void;
+  addToast: (message: string, type?: Toast['type'], seatIndex?: number) => void;
   removeToast: (id: string) => void;
   setPhase: (phase: GamePhase) => void;
+  setVolume: (type: 'master' | 'music' | 'sfx', value: number) => void;
 }
 
 const initialState: Omit<GameState, keyof GameActions> = {
@@ -76,6 +78,9 @@ const initialState: Omit<GameState, keyof GameActions> = {
   turnTimer: TURN_TIMER_SECONDS,
   turnTimerMax: TURN_TIMER_SECONDS,
   isDiscardBurned: false,
+  masterVolume: 0.5,
+  musicVolume: 0.5,
+  sfxVolume: 0.5,
 };
 
 export const useGameStore = create<GameState & GameActions>((set, get) => ({
@@ -174,7 +179,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
 
     // Rule: Cannot pick up if burned (power used)
     if (get().isDiscardBurned) {
-      get().addToast('Cannot pick up! Power was used.', 'warning');
+      get().addToast('Cannot pick up! Power was used.', 'warning', currentTurnSeat);
       return;
     }
 
@@ -192,7 +197,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     if (phase !== 'turn_decision' || !drawnCard) return;
     const current = players[currentTurnSeat];
     if (current.hand[handIndex].isLocked) {
-      get().addToast('That card is locked!', 'warning');
+      get().addToast('That card is locked!', 'warning', currentTurnSeat);
       return;
     }
 
@@ -219,7 +224,9 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       newMemories.set(aiSeat, updated);
     }
 
-    const power = usePower ? getCardPower(removedCard) : null;
+    // Power Logic Change: Swapped cards (from hand) NEVER trigger powers.
+    // Powers only trigger on "Draw & Immediate Discard".
+    const power = null;
 
     set({
       players: newPlayers,
@@ -229,24 +236,27 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       aiMemories: newMemories,
     });
 
-    if (power) {
-      removedCard.powerUsed = true; // Mark as permanently used
-      get().addToast(`${removedCard.isJoker ? 'Joker' : removedCard.rank} power: ${powerName(power)}!`, 'power');
-      set({ activePower: power, powerSourceSeat: currentTurnSeat, phase: 'power_target', isDiscardBurned: true });
-    } else {
-      // Normal discard, safe to pick up next turn
-      set({ isDiscardBurned: false });
-      get()._endTurn();
-    }
+    // Normal discard, safe to pick up next turn
+    set({ isDiscardBurned: false });
+    get()._endTurn();
   },
 
   discardDrawn: (usePower: boolean = true) => {
-    const { drawnCard, discardPile, phase, aiMemories } = get();
+    const { drawnCard, discardPile, phase, aiMemories, players, currentTurnSeat } = get();
     if (phase !== 'turn_decision' || !drawnCard) return;
 
     const discarded = { ...drawnCard, isFaceUp: true };
     const newDiscardPile = [...discardPile, discarded];
-    const power = usePower ? getCardPower(discarded) : null;
+    let power = usePower ? getCardPower(discarded) : null;
+
+    // Special check: If power is 'unlock', verify there are actually locked cards
+    if (power === 'unlock') {
+      const hasLockedCards = players.some(p => p.hand.some(c => c.isLocked));
+      if (!hasLockedCards) {
+        power = null;
+        get().addToast('No locked cards to unlock!', 'info', currentTurnSeat);
+      }
+    }
 
     // Update AI memories
     const newMemories = new Map(aiMemories);
@@ -267,7 +277,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
 
     if (power) {
       discarded.powerUsed = true; // Mark as permanently used
-      get().addToast(`${discarded.isJoker ? 'Joker' : discarded.rank} power: ${powerName(power)}!`, 'power');
+      get().addToast(`${discarded.isJoker ? 'Joker' : discarded.rank} power: ${powerName(power)}!`, 'power', get().currentTurnSeat);
       set({ activePower: power, powerSourceSeat: get().currentTurnSeat, phase: 'power_target', isDiscardBurned: true });
     } else {
       // Normal discard
@@ -293,18 +303,18 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         const hand = newPlayers[targetSeat].hand;
         if (hand[targetIndex].isLocked) {
           hand[targetIndex] = { ...hand[targetIndex], isLocked: false };
-          get().addToast(`Unlocked ${newPlayers[targetSeat].name}'s card #${targetIndex + 1}!`, 'info');
+          get().addToast(`Unlocked ${newPlayers[targetSeat].name}'s card #${targetIndex + 1}!`, 'info', currentTurnSeat);
         }
         break;
       }
       case 'peek': {
         const hand = newPlayers[targetSeat].hand;
         if (hand[targetIndex].isLocked) {
-          get().addToast('Cannot peek at a locked card!', 'warning');
+          get().addToast('Cannot peek at a locked card!', 'warning', currentTurnSeat);
           return;
         }
         hand[targetIndex] = { ...hand[targetIndex], isPeeking: true };
-        get().addToast(`Peeking at ${newPlayers[targetSeat].name}'s card #${targetIndex + 1}...`, 'info');
+        get().addToast(`Peeking at ${newPlayers[targetSeat].name}'s card #${targetIndex + 1}...`, 'info', currentTurnSeat);
 
         set({
           players: newPlayers,
@@ -332,7 +342,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         if (swapSource === null) {
           // First selection
           if (newPlayers[targetSeat].hand[targetIndex].isLocked) {
-            get().addToast('Cannot select a locked card!', 'warning');
+            get().addToast('Cannot select a locked card!', 'warning', currentTurnSeat);
             return; // Don't end turn, user must pick valid card
           }
 
@@ -342,7 +352,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
             isSelected: true
           };
 
-          get().addToast('Select second card to swap.', 'info');
+          get().addToast('Select second card to swap.', 'info', currentTurnSeat);
           set({ players: newPlayers, swapSource: { seat: targetSeat, index: targetIndex } });
           return; // Wait for second click
         }
@@ -350,12 +360,12 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         // Second selection
         // Check if same card clicked
         if (swapSource.seat === targetSeat && swapSource.index === targetIndex) {
-          get().addToast('Select a different card!', 'warning');
+          get().addToast('Select a different card!', 'warning', currentTurnSeat);
           return;
         }
 
         if (newPlayers[targetSeat].hand[targetIndex].isLocked) {
-          get().addToast('Cannot swap with a locked card!', 'warning');
+          get().addToast('Cannot swap with a locked card!', 'warning', currentTurnSeat);
           return;
         }
 
@@ -389,7 +399,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
           newMemories.set(aiSeat, updated);
         }
 
-        get().addToast('Swapped cards!', 'info');
+        get().addToast('Swapped cards!', 'info', currentTurnSeat);
         break;
       }
       case 'lock': {
@@ -397,7 +407,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
           ...newPlayers[targetSeat].hand[targetIndex],
           isLocked: true,
         };
-        get().addToast(`Locked ${newPlayers[targetSeat].name}'s card #${targetIndex + 1}!`, 'info');
+        get().addToast(`Locked ${newPlayers[targetSeat].name}'s card #${targetIndex + 1}!`, 'info', currentTurnSeat);
         break;
       }
     }
@@ -455,7 +465,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       }
     });
 
-    get().addToast(`Global Swap! Hands rotated to the ${direction.toUpperCase()}!`, 'power');
+    get().addToast(`Global Swap! Hands rotated to the ${direction.toUpperCase()}!`, 'power', activePower === 'mass_swap' ? undefined : undefined); // Mass swap affects everyone, maybe center?
 
     set({
       players: newPlayers,
@@ -531,11 +541,11 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     let drawnCard: Card;
     if (drawChoice === 'discard' && discardTop) {
       drawnCard = { ...newDiscardPile.pop()!, isFaceUp: true };
-      get().addToast(`${aiPlayer.name} drew from discard`, 'info');
+      get().addToast(`${aiPlayer.name} drew from discard`, 'info', seat);
     } else {
       drawnCard = { ...newDeck[0], isFaceUp: true };
       newDeck = newDeck.slice(1);
-      get().addToast(`${aiPlayer.name} drew from deck`, 'info');
+      get().addToast(`${aiPlayer.name} drew from deck`, 'info', seat);
     }
 
     // 2. Decide
@@ -554,7 +564,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         const power = getCardPower(removed);
         if (power) {
           removed.powerUsed = true; // Mark as permanently used
-          get().addToast(`${aiPlayer.name} used ${removed.isJoker ? 'Joker' : removed.rank}: ${powerName(power)}!`, 'power');
+          get().addToast(`${aiPlayer.name} used ${removed.isJoker ? 'Joker' : removed.rank}: ${powerName(power)}!`, 'power', seat);
           set({ isDiscardBurned: true }); // AI used power
           const powerDecision = aiPowerTarget(difficulty, power, seat, newPlayers[seat].hand, opponents, newMemory);
           if (powerDecision) {
@@ -580,7 +590,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       const power = getCardPower(discarded);
       if (power) {
         discarded.powerUsed = true; // Mark as permanently used
-        get().addToast(`${aiPlayer.name} used ${discarded.isJoker ? 'Joker' : discarded.rank}: ${powerName(power)}!`, 'power');
+        get().addToast(`${aiPlayer.name} used ${discarded.isJoker ? 'Joker' : discarded.rank}: ${powerName(power)}!`, 'power', seat);
         set({ isDiscardBurned: true }); // AI used power
         const opponents2: Opponent[] = newPlayers
           .filter((p) => p.seatIndex !== seat)
@@ -614,7 +624,13 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
   _startTimer: () => {
     // Clear any existing timer
     if (_timerInterval) clearInterval(_timerInterval);
-    set({ turnTimer: TURN_TIMER_SECONDS });
+
+    // Determine timer duration based on current player type
+    const { players, currentTurnSeat } = get();
+    const currentPlayer = players[currentTurnSeat];
+    const duration = (currentPlayer.kind === 'human') ? PLAYER_TURN_TIMER_SECONDS : TURN_TIMER_SECONDS;
+
+    set({ turnTimer: duration, turnTimerMax: duration });
 
     _timerInterval = setInterval(() => {
       const s = get();
@@ -641,7 +657,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     // Only auto-act for local human players
     if (!current.isLocal || current.kind === 'ai') return;
 
-    get().addToast('Time\'s up! Auto-playing...', 'warning');
+    get().addToast('Time\'s up! Auto-playing...', 'warning', currentTurnSeat);
 
     if (phase === 'turn_draw') {
       // Auto-draw from deck
@@ -697,12 +713,13 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     }
   },
 
-  addToast: (message: string, type: Toast['type'] = 'info') => {
+  addToast: (message: string, type: Toast['type'] = 'info', seatIndex?: number) => {
     const id = generateToastId();
-    set((s) => ({ toasts: [...s.toasts.slice(-4), { id, message, type }] }));
+    // Reduce max toasts stack to 2 to prevent clutter
+    set((s) => ({ toasts: [...s.toasts.slice(-1), { id, message, type, seatIndex }] }));
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
-    }, 3500);
+    }, 3000);
   },
 
   removeToast: (id: string) => {
@@ -710,6 +727,14 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
   },
 
   setPhase: (phase: GamePhase) => set({ phase }),
+
+  setVolume: (type, value) => set((state) => {
+    switch (type) {
+      case 'master': return { masterVolume: value };
+      case 'music': return { musicVolume: value };
+      case 'sfx': return { sfxVolume: value };
+    }
+  }),
 }));
 
 // Apply AI power card effect (mutates newPlayers and memory in place)
@@ -718,7 +743,7 @@ function applyAIPower(
   aiSeat: number,
   newPlayers: PlayerInfo[],
   memory: AIMemory,
-  addToast: (msg: string, type?: Toast['type']) => void,
+  addToast: (msg: string, type?: Toast['type'], seatIndex?: number) => void,
   rotateHands?: (direction: 'left' | 'right') => void
 ) {
   const aiPlayer = newPlayers[aiSeat];
@@ -728,7 +753,7 @@ function applyAIPower(
       const hand = newPlayers[decision.targetSeat].hand;
       if (hand[decision.targetIndex].isLocked) {
         hand[decision.targetIndex] = { ...hand[decision.targetIndex], isLocked: false };
-        addToast(`${aiPlayer.name} unlocked ${newPlayers[decision.targetSeat].name}'s card`, 'info');
+        addToast(`${aiPlayer.name} unlocked ${newPlayers[decision.targetSeat].name}'s card`, 'info', aiSeat);
       }
       break;
     }
@@ -740,7 +765,7 @@ function applyAIPower(
         const seatKnown = new Map(memory.knownCards.get(decision.targetSeat) || new Map());
         seatKnown.set(decision.targetIndex, { ...card });
         memory.knownCards.set(decision.targetSeat, seatKnown);
-        addToast(`${aiPlayer.name} peeked at ${newPlayers[decision.targetSeat].name}'s card`, 'info');
+        addToast(`${aiPlayer.name} peeked at ${newPlayers[decision.targetSeat].name}'s card`, 'info', aiSeat);
       }
       break;
     }
@@ -761,14 +786,14 @@ function applyAIPower(
         targetKnown.delete(decision.targetIndex);
         memory.knownCards.set(decision.targetSeat, targetKnown);
 
-        addToast(`${aiPlayer.name} swapped cards with ${newPlayers[decision.targetSeat].name}!`, 'warning');
+        addToast(`${aiPlayer.name} swapped Card #${ownIdx + 1} with ${newPlayers[decision.targetSeat].name}'s Card #${decision.targetIndex + 1}!`, 'warning', aiSeat);
       }
       break;
     }
     case 'lock': {
       const hand = newPlayers[decision.targetSeat].hand;
       hand[decision.targetIndex] = { ...hand[decision.targetIndex], isLocked: true };
-      addToast(`${aiPlayer.name} locked ${newPlayers[decision.targetSeat].name}'s card`, 'info');
+      addToast(`${aiPlayer.name} locked ${newPlayers[decision.targetSeat].name}'s card`, 'info', aiSeat);
       break;
     }
     case 'mass_swap': {

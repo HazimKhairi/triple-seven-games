@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Users,
@@ -8,13 +8,16 @@ import {
     Globe,
     Monitor,
     ArrowLeft,
-    Plus,
-    Minus,
     Play,
     Info,
-    RotateCcw
+    RotateCcw,
+    Settings,
+    Volume2,
+    Volume1,
+    VolumeX
 } from 'lucide-react';
 import { Difficulty } from '@/types/game';
+import { useGameStore } from '@/store/game-store';
 
 interface MainMenuProps {
     onStartLocalGame: (config: { difficulty: Difficulty; humanCount: number; aiNames: string[] }) => void;
@@ -25,7 +28,7 @@ interface MainMenuProps {
     error: string | null;
 }
 
-type MenuStep = 'home' | 'mode' | 'difficulty' | 'players' | 'online_setup' | 'rules';
+type MenuStep = 'splash' | 'home' | 'mode' | 'difficulty' | 'players' | 'online_setup' | 'rules' | 'settings';
 
 export default function MainMenu({
     onStartLocalGame,
@@ -35,7 +38,10 @@ export default function MainMenu({
     isConnecting,
     error
 }: MainMenuProps) {
-    const [menuStep, setMenuStep] = useState<MenuStep>('home');
+    const { masterVolume, musicVolume, setVolume } = useGameStore();
+
+    // Local state for immediate slider feedback, though we sync with store
+    const [menuStep, setMenuStep] = useState<MenuStep>('splash');
     const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>('beginner');
     const [humanCount, setHumanCount] = useState(1);
     const [playerName, setPlayerName] = useState('');
@@ -51,132 +57,171 @@ export default function MainMenu({
         });
     };
 
+    // Initialize Audio
+    useEffect(() => {
+        const audio = new Audio('/bgm.mp3');
+        audio.loop = true;
+        (window as any).__menuAudio = audio;
+
+        return () => {
+            audio.pause();
+            audio.currentTime = 0;
+            delete (window as any).__menuAudio;
+        };
+    }, []);
+
+    // Handle "Click to Start"
+    const handleSplashClick = () => {
+        const audio = (window as any).__menuAudio as HTMLAudioElement;
+        if (audio) {
+            audio.volume = masterVolume * musicVolume;
+            audio.play().catch(e => console.log("Audio play failed:", e));
+        }
+        setMenuStep('home');
+    };
+
+    // Volume update effect
+    useEffect(() => {
+        const audio = (window as any).__menuAudio as HTMLAudioElement;
+        if (audio) {
+            audio.volume = Math.max(0, Math.min(1, masterVolume * musicVolume));
+        }
+    }, [masterVolume, musicVolume]);
+
+
+    // Portal 2 Style Menu Item
+    const MenuItem = ({ onClick, children, className = "" }: { onClick: () => void, children: React.ReactNode, className?: string }) => (
+        <button
+            onClick={onClick}
+            className={`text-left text-2xl md:text-3xl lg:text-4xl font-bold tracking-tight text-zinc-300 hover:text-white uppercase transition-all duration-200 hover:pl-4 hover:tracking-wide active:text-amber-400 group ${className}`}
+        >
+            <span className="inline-block group-hover:drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]">{children}</span>
+        </button>
+    );
+
+    // Settings Slider
+    const VolumeSlider = ({ label, value, onChange }: { label: string, value: number, onChange: (val: number) => void }) => (
+        <div className="w-full max-w-sm mb-6">
+            <div className="flex justify-between mb-2">
+                <span className="text-zinc-400 font-bold tracking-wider uppercase text-sm">{label}</span>
+                <span className="text-amber-500 font-mono text-sm">{(value * 100).toFixed(0)}%</span>
+            </div>
+            <div className="flex items-center gap-4">
+                <button onClick={() => onChange(0)} className="text-zinc-500 hover:text-white">
+                    {value === 0 ? <VolumeX className="w-5 h-5" /> : <Volume1 className="w-5 h-5" />}
+                </button>
+                <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={value}
+                    onChange={(e) => onChange(parseFloat(e.target.value))}
+                    className="flex-1 h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500 hover:accent-amber-400"
+                />
+                <Volume2 className="w-5 h-5 text-zinc-500" />
+            </div>
+        </div>
+    );
+
     return (
-        <div className="relative flex flex-col items-center justify-center min-h-screen w-full overflow-hidden bg-zinc-950 text-zinc-100">
-            {/* Background Decor */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-red-600/10 rounded-full blur-[100px]" />
-                <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,transparent_0%,#09090b_100%)]" />
+        <div className="relative flex min-h-screen w-full overflow-hidden bg-black text-white font-sans selection:bg-amber-500/30">
+            {/* Background Image */}
+            <div className="absolute inset-0 z-0">
+                <img
+                    src="/tujuh_portal_bg.png"
+                    alt="Background"
+                    className="w-full h-full object-cover opacity-80"
+                />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
             </div>
 
-            <div className="relative z-10 w-full max-w-4xl px-4 flex flex-col items-center">
-                {/* Header / Title */}
+            {/* Left Content Container */}
+            <div className="relative z-10 flex flex-col justify-center h-full px-8 md:px-24 w-full md:max-w-3xl">
+
+                {/* Logo Area */}
                 <motion.div
-                    initial={{ opacity: 0, y: -50 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.8, ease: "easeOut" }}
-                    className="text-center mb-12"
+                    initial={{ opacity: 0, x: -50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 1, ease: "easeOut" }}
+                    className="mb-12"
                 >
-                    <div className="relative inline-block">
-                        <h1 className="text-8xl md:text-9xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-white via-zinc-400 to-zinc-600">
-                            777
-                        </h1>
-                        <div className="absolute -top-6 -right-8 rotate-12 bg-amber-500 text-black font-bold text-xs px-2 py-1 rounded shadow-lg border border-amber-400">
-                            ZERO IS HERO
-                        </div>
+                    <h1 className="text-7xl md:text-9xl font-black tracking-tighter text-white drop-shadow-2xl">
+                        TUJUH
+                    </h1>
+                    <div className="flex items-center gap-4 mt-2 ml-2">
+                        <div className="h-[2px] w-12 bg-amber-500" />
+                        <span className="text-xl tracking-[0.2em] font-light text-zinc-300 uppercase">Card Game</span>
                     </div>
-                    <motion.p
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.4 }}
-                        className="text-2xl md:text-3xl font-light text-zinc-400 mt-2 tracking-wide"
-                    >
-                        TRIPLE SEVEN
-                    </motion.p>
-                    <motion.p
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        transition={{ delay: 0.6 }}
-                        className="text-sm md:text-base text-zinc-500 mt-4 max-w-lg mx-auto leading-relaxed"
-                    >
-                        A high-stakes strategic card game where lowest score wins.
-                        <br />
-                        Blind Draw • Tactical Powers • Abrupt Endings
-                    </motion.p>
                 </motion.div>
 
-                {/* Main Content Area */}
-                <div className="w-full max-w-md min-h-[300px] flex flex-col items-center">
+                {/* Animated Menu Panel */}
+                <div className="min-h-[400px]">
                     <AnimatePresence mode="wait">
 
-                        {/* HOME SCREEN */}
-                        {menuStep === 'home' && (
+                        {/* SPLASH SCREEN */}
+                        {menuStep === 'splash' && (
                             <motion.div
-                                key="home"
-                                initial={{ opacity: 0, scale: 0.9 }}
-                                animate={{ opacity: 1, scale: 1 }}
-                                exit={{ opacity: 0, scale: 0.9 }}
-                                className="flex flex-col gap-4 w-full"
+                                key="splash"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                className="flex flex-col items-start gap-8 mt-12 cursor-pointer"
+                                onClick={handleSplashClick}
                             >
-                                <button
-                                    onClick={() => setMenuStep('mode')}
-                                    className="group relative w-full py-4 bg-zinc-100 hover:bg-white text-zinc-950 rounded-xl font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.1)] transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
+                                <motion.div
+                                    animate={{ opacity: [0.4, 1, 0.4] }}
+                                    transition={{ duration: 2, repeat: Infinity }}
+                                    className="text-2xl md:text-3xl font-bold tracking-[0.3em] text-white hover:text-amber-400 transition-colors uppercase"
                                 >
-                                    <Play className="w-5 h-5 fill-current" />
-                                    PLAY NOW
-                                </button>
-
-                                <button
-                                    onClick={() => setMenuStep('rules')}
-                                    className="w-full py-4 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200 rounded-xl font-semibold transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
-                                >
-                                    <Info className="w-5 h-5" />
-                                    HOW TO PLAY
-                                </button>
-
-                                <button
-                                    onClick={onStartTutorial}
-                                    className="w-full py-4 bg-zinc-900/50 hover:bg-zinc-900 border border-zinc-800 text-emerald-400 hover:text-emerald-300 rounded-xl font-semibold transition-all hover:scale-[1.02] flex items-center justify-center gap-2"
-                                >
-                                    <RotateCcw className="w-5 h-5" />
-                                    INTERACTIVE TUTORIAL
-                                </button>
+                                    [ Click to Start ]
+                                </motion.div>
                             </motion.div>
                         )}
 
-                        {/* RULES SCREEN */}
-                        {menuStep === 'rules' && (
+                        {/* MAIN MENU */}
+                        {menuStep === 'home' && (
                             <motion.div
-                                key="rules"
-                                initial={{ opacity: 0, x: 20 }}
+                                key="home"
+                                initial={{ opacity: 0, x: -20 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -20 }}
-                                className="w-full bg-zinc-900/80 border border-zinc-800 p-6 rounded-2xl backdrop-blur-sm"
+                                transition={{ duration: 0.2 }}
+                                className="flex flex-col items-start gap-6"
                             >
-                                <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-                                    <Info className="w-5 h-5 text-amber-500" />
-                                    Game Rules
-                                </h3>
-                                <div className="text-sm text-zinc-400 space-y-3 leading-relaxed h-64 overflow-y-auto pr-2 custom-scrollbar">
-                                    <p>
-                                        <strong className="text-zinc-200">Objective:</strong> Achieve the lowest score possible. The game ends when the deck runs out.
-                                    </p>
-                                    <p>
-                                        <strong className="text-zinc-200">Scoring:</strong>
-                                        <br />• 7 = 0 points (Best)
-                                        <br />• A = 1 point
-                                        <br />• 2-9 = Face Value
-                                        <br />• 10, J, Q, K, Joker = 10 points
-                                    </p>
-                                    <p>
-                                        <strong className="text-zinc-200">Gameplay:</strong> You start with 4 face-down cards. Unknown even to you.
-                                        On your turn, draw a card. You can swap it with one of your hidden cards or discard it.
-                                    </p>
-                                    <p>
-                                        <strong className="text-zinc-200">Power Cards (Discard to use):</strong>
-                                        <br />• 10: <span className="text-violet-400">Unlock</span> an opponent's card
-                                        <br />• J: <span className="text-violet-400">Swap</span> a card with opponent
-                                        <br />• Q: <span className="text-violet-400">Peek</span> at a card
-                                        <br />• K: <span className="text-red-400">Lock</span> an opponent's card
-                                        <br />• Joker: <span className="text-amber-400">Mass Swap</span> (Left or Right)
-                                    </p>
-                                </div>
-                                <button
-                                    onClick={() => setMenuStep('home')}
-                                    className="mt-6 w-full py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg font-medium transition-colors"
-                                >
-                                    Back to Menu
-                                </button>
+                                <MenuItem onClick={() => setMenuStep('mode')}>Play Game</MenuItem>
+                                <MenuItem onClick={onStartTutorial}>Tutorial</MenuItem>
+                                <MenuItem onClick={() => setMenuStep('settings')}>Settings</MenuItem>
+                                <MenuItem onClick={() => setMenuStep('rules')}>Rules</MenuItem>
+                            </motion.div>
+                        )}
+
+                        {/* SETTINGS */}
+                        {menuStep === 'settings' && (
+                            <motion.div
+                                key="settings"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: 20 }}
+                                transition={{ duration: 0.2 }}
+                                className="flex flex-col items-start gap-2 w-full"
+                            >
+                                <div className="text-amber-500 text-sm font-bold tracking-widest uppercase mb-6">Audio Settings</div>
+
+                                <VolumeSlider
+                                    label="Master Volume"
+                                    value={masterVolume}
+                                    onChange={(v) => setVolume('master', v)}
+                                />
+
+                                <VolumeSlider
+                                    label="Music Volume"
+                                    value={musicVolume}
+                                    onChange={(v) => setVolume('music', v)}
+                                />
+
+                                <div className="h-px w-24 bg-zinc-700 my-4" />
+                                <MenuItem onClick={() => setMenuStep('home')} className="text-zinc-500 hover:text-zinc-300 !text-xl">Back</MenuItem>
                             </motion.div>
                         )}
 
@@ -186,261 +231,152 @@ export default function MainMenu({
                                 key="mode"
                                 initial={{ opacity: 0, x: 20 }}
                                 animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                className="flex flex-col gap-4 w-full"
+                                exit={{ opacity: 0, x: 20 }}
+                                transition={{ duration: 0.2 }}
+                                className="flex flex-col items-start gap-6"
                             >
-                                <h2 className="text-center text-zinc-400 mb-2 font-medium">Select Game Mode</h2>
-                                <button
-                                    onClick={() => setMenuStep('difficulty')}
-                                    className="flex items-center justify-between p-5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 hover:border-emerald-500/50 group transition-all"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 rounded-lg bg-emerald-500/10 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-black transition-colors">
-                                            <Monitor className="w-6 h-6" />
-                                        </div>
-                                        <div className="text-left">
-                                            <div className="font-bold text-white group-hover:text-emerald-400 transition-colors">Local Play</div>
-                                            <div className="text-xs text-zinc-500">Play against AI bots</div>
-                                        </div>
-                                    </div>
-                                    <ArrowLeft className="w-5 h-5 text-zinc-600 rotate-180" />
-                                </button>
-
-                                <button
-                                    onClick={() => setMenuStep('online_setup')}
-                                    className="flex items-center justify-between p-5 rounded-xl border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 hover:border-violet-500/50 group transition-all"
-                                >
-                                    <div className="flex items-center gap-4">
-                                        <div className="p-3 rounded-lg bg-violet-500/10 text-violet-500 group-hover:bg-violet-500 group-hover:text-black transition-colors">
-                                            <Globe className="w-6 h-6" />
-                                        </div>
-                                        <div className="text-left">
-                                            <div className="font-bold text-white group-hover:text-violet-400 transition-colors">Online Multiplayer</div>
-                                            <div className="text-xs text-zinc-500">Play with friends globally</div>
-                                        </div>
-                                    </div>
-                                    <ArrowLeft className="w-5 h-5 text-zinc-600 rotate-180" />
-                                </button>
-
-                                <button
-                                    onClick={() => setMenuStep('home')}
-                                    className="mt-4 text-zinc-500 hover:text-white text-sm py-2"
-                                >
-                                    Cancel
-                                </button>
+                                <div className="text-amber-500 text-sm font-bold tracking-widest uppercase mb-2">Select Mode</div>
+                                <MenuItem onClick={() => setMenuStep('difficulty')}>Single Player</MenuItem>
+                                <MenuItem onClick={() => setMenuStep('online_setup')}>Online Multiplayer</MenuItem>
+                                <div className="h-px w-24 bg-zinc-700 my-2" />
+                                <MenuItem onClick={() => setMenuStep('home')} className="text-zinc-500 hover:text-zinc-300 !text-xl">Back</MenuItem>
                             </motion.div>
                         )}
 
-                        {/* DIFFICULTY SELECTION (Local) */}
+                        {/* DIFFICULTY SELECTION */}
                         {menuStep === 'difficulty' && (
                             <motion.div
                                 key="difficulty"
                                 initial={{ opacity: 0, x: 20 }}
                                 animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                className="flex flex-col gap-3 w-full"
+                                exit={{ opacity: 0, x: 20 }}
+                                transition={{ duration: 0.2 }}
+                                className="flex flex-col items-start gap-6"
                             >
-                                <div className="flex items-center gap-2 mb-4">
-                                    <button onClick={() => setMenuStep('mode')} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
-                                        <ArrowLeft className="w-5 h-5" />
-                                    </button>
-                                    <h2 className="text-lg font-bold text-white">Select Difficulty</h2>
-                                </div>
-
-                                {(['beginner', 'intermediate', 'hardcore'] as const).map((diff) => (
-                                    <button
-                                        key={diff}
-                                        onClick={() => { setSelectedDifficulty(diff); setMenuStep('players'); }}
-                                        className={`relative overflow-hidden w-full p-4 rounded-xl border text-left transition-all ${diff === 'beginner'
-                                            ? 'bg-emerald-950/20 border-emerald-900/50 hover:border-emerald-500 text-emerald-100'
-                                            : diff === 'intermediate'
-                                                ? 'bg-amber-950/20 border-amber-900/50 hover:border-amber-500 text-amber-100'
-                                                : 'bg-red-950/20 border-red-900/50 hover:border-red-500 text-red-100'
-                                            }`}
-                                    >
-                                        <div className="font-bold text-lg capitalize mb-1">{diff}</div>
-                                        <div className="text-xs opacity-70">
-                                            {diff === 'beginner' && "Standard AI. Good for learning."}
-                                            {diff === 'intermediate' && "Smarter AI. Uses power cards effectively."}
-                                            {diff === 'hardcore' && "Ruthless AI. Remembers everything."}
-                                        </div>
-                                    </button>
-                                ))}
+                                <div className="text-amber-500 text-sm font-bold tracking-widest uppercase mb-2">Select Difficulty</div>
+                                <MenuItem onClick={() => { setSelectedDifficulty('beginner'); setMenuStep('players'); }}>Beginner</MenuItem>
+                                <MenuItem onClick={() => { setSelectedDifficulty('intermediate'); setMenuStep('players'); }}>Intermediate</MenuItem>
+                                <MenuItem onClick={() => { setSelectedDifficulty('hardcore'); setMenuStep('players'); }}>Hardcore</MenuItem>
+                                <div className="h-px w-24 bg-zinc-700 my-2" />
+                                <MenuItem onClick={() => setMenuStep('mode')} className="text-zinc-500 hover:text-zinc-300 !text-xl">Back</MenuItem>
                             </motion.div>
                         )}
 
-                        {/* PLAYER COUNT (Local) */}
+                        {/* PLAYERS CONFIRMATION */}
                         {menuStep === 'players' && (
                             <motion.div
                                 key="players"
                                 initial={{ opacity: 0, x: 20 }}
                                 animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                className="flex flex-col gap-6 w-full"
+                                exit={{ opacity: 0, x: 20 }}
+                                transition={{ duration: 0.2 }}
+                                className="flex flex-col items-start gap-8"
                             >
-                                <div className="flex items-center gap-2">
-                                    <button onClick={() => setMenuStep('difficulty')} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
-                                        <ArrowLeft className="w-5 h-5" />
-                                    </button>
-                                    <h2 className="text-lg font-bold text-white">Setup Players</h2>
-                                </div>
-
-                                <div className="bg-zinc-900/50 p-6 rounded-2xl border border-zinc-800 flex flex-col items-center gap-6">
-                                    <span className="text-zinc-400 text-sm uppercase tracking-wider font-medium">Single Player</span>
-
-                                    <div className="flex items-center gap-4 py-2">
-                                        <div className="flex flex-col items-center gap-2">
-                                            <div className="w-16 h-16 rounded-full bg-emerald-500/20 border-2 border-emerald-500/50 flex items-center justify-center">
-                                                <Users className="w-8 h-8 text-emerald-400" />
-                                            </div>
-                                            <span className="text-xs font-bold text-emerald-400">YOU</span>
-                                        </div>
-                                        <div className="h-px w-12 bg-zinc-700" />
-                                        <div className="flex flex-col items-center gap-2">
-                                            <div className="w-16 h-16 rounded-full bg-zinc-800 border-2 border-zinc-700 flex items-center justify-center">
-                                                <Bot className="w-8 h-8 text-zinc-500" />
-                                            </div>
-                                            <span className="text-xs font-bold text-zinc-500">3 BOTS</span>
-                                        </div>
-                                    </div>
-
-                                    <p className="text-zinc-500 text-xs text-center max-w-xs">
-                                        You are playing against 3 AI opponents. Good luck!
+                                <div className="text-amber-500 text-sm font-bold tracking-widest uppercase mb-2">Confirm Setup</div>
+                                <div className="bg-white/5 border-l-4 border-amber-500 p-6 max-w-md backdrop-blur-sm">
+                                    <p className="text-zinc-300 text-lg">
+                                        Starting a <span className="text-white font-bold capitalize">{selectedDifficulty}</span> game against 3 AI opponents.
                                     </p>
                                 </div>
 
-                                <div className="space-y-3">
-                                    <button
-                                        onClick={handleStartLocal}
-                                        className="w-full py-4 bg-white text-black hover:bg-zinc-200 rounded-xl font-bold text-lg shadow-lg shadow-white/10 transition-colors"
-                                    >
-                                        Start Game
-                                    </button>
-                                </div>
+                                <MenuItem onClick={handleStartLocal} className="!text-amber-400 hover:!text-amber-300">Start Match</MenuItem>
+                                <MenuItem onClick={() => setMenuStep('difficulty')} className="text-zinc-500 hover:text-zinc-300 !text-xl">Back</MenuItem>
                             </motion.div>
                         )}
 
-                        {/* ONLINE SETUP */}
+                        {/* ONLINE */}
                         {menuStep === 'online_setup' && (
                             <motion.div
                                 key="online"
                                 initial={{ opacity: 0, x: 20 }}
                                 animate={{ opacity: 1, x: 0 }}
-                                exit={{ opacity: 0, x: -20 }}
-                                className="flex flex-col gap-6 w-full"
+                                exit={{ opacity: 0, x: 20 }}
+                                transition={{ duration: 0.2 }}
+                                className="flex flex-col gap-6 w-full max-w-md"
                             >
-                                <div className="flex items-center gap-2">
-                                    <button onClick={() => setMenuStep('mode')} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400">
-                                        <ArrowLeft className="w-5 h-5" />
-                                    </button>
-                                    <h2 className="text-lg font-bold text-white">Online Lobby</h2>
-                                </div>
+                                <div className="text-amber-500 text-sm font-bold tracking-widest uppercase mb-2">Online Lobby</div>
 
-                                <div className="space-y-4">
-                                    <div>
-                                        <label className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2 block ml-1">Your Name</label>
-                                        <input
-                                            type="text"
-                                            value={playerName}
-                                            onChange={(e) => setPlayerName(e.target.value)}
-                                            placeholder="Enter nickname..."
-                                            maxLength={12}
-                                            className="w-full px-5 py-4 rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all"
-                                        />
-                                    </div>
+                                <div className="space-y-4 bg-black/40 p-6 border border-zinc-800 backdrop-blur-md">
+                                    <input
+                                        type="text"
+                                        placeholder="YOUR NAME"
+                                        value={playerName}
+                                        onChange={(e) => setPlayerName(e.target.value)}
+                                        className="w-full bg-transparent border-b border-zinc-500 py-2 text-xl text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 transition-colors font-bold uppercase"
+                                    />
 
-                                    <div className="grid grid-cols-2 p-1 bg-zinc-900 rounded-xl border border-zinc-800">
+                                    <div className="flex gap-4 pt-4">
                                         <button
                                             onClick={() => setOnlineAction('create')}
-                                            className={`py-3 rounded-lg text-sm font-bold transition-all ${onlineAction === 'create'
-                                                ? 'bg-zinc-800 text-white shadow-sm'
-                                                : 'text-zinc-500 hover:text-zinc-300'
-                                                }`}
+                                            className={`flex-1 py-2 text-sm font-bold uppercase tracking-wider border transition-all ${onlineAction === 'create' ? 'border-amber-500 text-amber-500 bg-amber-500/10' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'}`}
                                         >
-                                            Create Room
+                                            Create
                                         </button>
                                         <button
                                             onClick={() => setOnlineAction('join')}
-                                            className={`py-3 rounded-lg text-sm font-bold transition-all ${onlineAction === 'join'
-                                                ? 'bg-zinc-800 text-white shadow-sm'
-                                                : 'text-zinc-500 hover:text-zinc-300'
-                                                }`}
+                                            className={`flex-1 py-2 text-sm font-bold uppercase tracking-wider border transition-all ${onlineAction === 'join' ? 'border-amber-500 text-amber-500 bg-amber-500/10' : 'border-zinc-700 text-zinc-500 hover:border-zinc-500'}`}
                                         >
-                                            Join Room
+                                            Join
                                         </button>
                                     </div>
 
-                                    {onlineAction === 'create' ? (
-                                        <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                                            <div className="space-y-2">
-                                                <label className="text-zinc-500 text-xs font-semibold uppercase tracking-wider block ml-1">Bot Difficulty</label>
-                                                <div className="flex gap-2">
-                                                    {(['beginner', 'intermediate', 'hardcore'] as const).map((diff) => (
-                                                        <button
-                                                            key={diff}
-                                                            onClick={() => setSelectedDifficulty(diff)}
-                                                            className={`flex-1 py-3 rounded-lg text-xs font-bold border transition-colors ${selectedDifficulty === diff
-                                                                ? diff === 'beginner'
-                                                                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                                                                    : diff === 'intermediate'
-                                                                        ? 'bg-amber-500/20 border-amber-500 text-amber-400'
-                                                                        : 'bg-red-500/20 border-red-500 text-red-400'
-                                                                : 'bg-zinc-900 border-zinc-800 text-zinc-600 hover:bg-zinc-800'
-                                                                }`}
-                                                        >
-                                                            {diff}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            <button
-                                                onClick={() => onCreateOnlineRoom(playerName, selectedDifficulty)}
-                                                disabled={isConnecting || !playerName.trim()}
-                                                className="w-full py-4 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold shadow-lg shadow-violet-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed mt-2"
-                                            >
-                                                {isConnecting ? 'Connecting...' : 'Create & Host'}
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                                            <div>
-                                                <label className="text-zinc-500 text-xs font-semibold uppercase tracking-wider mb-2 block ml-1">Room Code</label>
-                                                <input
-                                                    type="text"
-                                                    value={joinRoomId}
-                                                    onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())}
-                                                    placeholder="CODE"
-                                                    maxLength={6}
-                                                    className="w-full px-5 py-4 text-center text-2xl font-mono tracking-[0.3em] rounded-xl bg-zinc-900 border border-zinc-800 text-white placeholder:text-zinc-700 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-all"
-                                                />
-                                            </div>
-                                            <button
-                                                onClick={() => onJoinOnlineRoom(joinRoomId, playerName)}
-                                                disabled={isConnecting || !playerName.trim() || !joinRoomId.trim()}
-                                                className="w-full py-4 bg-violet-600 hover:bg-violet-500 text-white rounded-xl font-bold shadow-lg shadow-violet-600/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                            >
-                                                {isConnecting ? 'Connecting...' : 'Join Lobby'}
-                                            </button>
-                                        </div>
+                                    {onlineAction === 'join' && (
+                                        <input
+                                            type="text"
+                                            placeholder="ROOM CODE"
+                                            value={joinRoomId}
+                                            onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())}
+                                            className="w-full bg-transparent border-b border-zinc-500 py-2 text-xl text-white placeholder:text-zinc-600 focus:outline-none focus:border-amber-500 transition-colors font-bold uppercase tracking-widest"
+                                        />
                                     )}
 
-                                    {error && (
-                                        <p className="text-red-400 text-sm text-center bg-red-950/30 py-2 rounded-lg border border-red-900/50">
-                                            {error}
-                                        </p>
-                                    )}
+                                    <button
+                                        onClick={() => onlineAction === 'create' ? onCreateOnlineRoom(playerName, 'beginner') : onJoinOnlineRoom(joinRoomId, playerName)}
+                                        disabled={isConnecting || !playerName}
+                                        className="w-full mt-4 py-4 bg-white text-black font-black uppercase tracking-widest hover:bg-amber-400 transition-colors disabled:opacity-50"
+                                    >
+                                        {isConnecting ? 'Connecting...' : (onlineAction === 'create' ? 'Launch Server' : 'Connect')}
+                                    </button>
+                                    {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
                                 </div>
+
+                                <MenuItem onClick={() => setMenuStep('mode')} className="text-zinc-500 hover:text-zinc-300 !text-xl">Back</MenuItem>
+                            </motion.div>
+                        )}
+
+                        {/* RULES */}
+                        {menuStep === 'rules' && (
+                            <motion.div
+                                key="rules"
+                                initial={{ opacity: 0, x: 20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: 20 }}
+                                transition={{ duration: 0.2 }}
+                                className="flex flex-col items-start gap-4 max-w-lg"
+                            >
+                                <div className="text-amber-500 text-sm font-bold tracking-widest uppercase mb-2">How To Play</div>
+                                <div className="text-zinc-300 space-y-4 max-h-[60vh] overflow-y-auto pr-4 custom-scrollbar">
+                                    <p>Your goal is to get the <strong className="text-white">LOWEST SCORE</strong>. <br /> 7 is 0 points (Best).</p>
+                                    <p>Draw cards, swap them with your hidden hand, or discard them.</p>
+                                    <ul className="list-disc pl-5 space-y-2 text-sm text-zinc-400">
+                                        <li><strong className="text-white">10</strong>: Unlock a card</li>
+                                        <li><strong className="text-white">J</strong>: Swap with opponent</li>
+                                        <li><strong className="text-white">Q</strong>: Peek at a card</li>
+                                        <li><strong className="text-white">K</strong>: Lock a card</li>
+                                    </ul>
+                                </div>
+                                <MenuItem onClick={() => setMenuStep('home')} className="text-zinc-500 hover:text-zinc-300 !text-xl mt-4">Back</MenuItem>
                             </motion.div>
                         )}
 
                     </AnimatePresence>
                 </div>
+
             </div>
 
-            {/* Footer Branding */}
-            <div className="absolute bottom-6 text-zinc-600 text-xs tracking-widest font-mono uppercase">
-                Triple Seven v1.0
+            {/* Footer */}
+            <div className="absolute bottom-8 left-8 md:left-24 text-zinc-600 text-xs font-mono">
+                TUJUH // SYSTEM VERSION 1.0 // ONLINE
             </div>
         </div>
     );

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Triple Seven - Card Game",
+  title: "Tujuh - Card Game",
   description: "A strategic card game where the lowest score wins. Play against AI with power cards!",
 };
 

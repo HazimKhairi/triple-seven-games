@@ -58,6 +58,7 @@ export interface Toast {
   id: string;
   message: string;
   type: 'info' | 'power' | 'warning' | 'success';
+  seatIndex?: number;
 }
 
 export interface SeatConfig {
@@ -95,6 +96,9 @@ export interface GameState {
   turnTimer: number;         // seconds remaining for current turn
   turnTimerMax: number;      // max seconds per turn
   isDiscardBurned: boolean;  // true if top discard was used as power
+  masterVolume: number;
+  musicVolume: number;
+  sfxVolume: number;
 }
 
 // Helper to get the image path for a card

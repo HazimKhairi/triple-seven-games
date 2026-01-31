@@ -1,233 +1,290 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useGameStore } from '@/store/game-store';
+import CardComponent from './Card';
+import PlayerHand from './PlayerHand';
+import { Card as CardType, getCardImagePath } from '@/types/game';
 import {
-    Users,
-    Bot,
     ArrowRight,
     Check,
     RotateCcw,
-    RotateCw,
-    X
+    X,
+    MousePointer2,
+    Info
 } from 'lucide-react';
-import Card from './Card'; // Reuse existing card component
-import { Card as CardType } from '@/types/game';
-import { useGameStore } from '@/store/game-store';
 
-type TutorialStep = {
-    title: string;
-    description: string;
-    highlight?: 'deck' | 'hand' | 'power_overlay' | 'score' | 'none';
-    mockCards?: CardType[];
-    actionRequired?: boolean; // If true, user must perform action to advance (simulated)
-    buttonText?: string;
-};
-
-// Mock Cards
-const mockHiddenCard: CardType = { id: 't-1', suit: 'spades', rank: '7', isJoker: false, isFaceUp: false, isLocked: false, isSelected: false, isPeeking: false };
-const mockSeven: CardType = { id: 't-2', suit: 'diamonds', rank: '7', isJoker: false, isFaceUp: true, isLocked: false, isSelected: false, isPeeking: false };
-const mockAce: CardType = { id: 't-3', suit: 'hearts', rank: 'A', isJoker: false, isFaceUp: true, isLocked: false, isSelected: false, isPeeking: false };
-const mockKing: CardType = { id: 't-4', suit: 'clubs', rank: 'K', isJoker: false, isFaceUp: true, isLocked: false, isSelected: false, isPeeking: false };
-const mockJoker: CardType = { id: 't-5', suit: null, rank: null, isJoker: true, jokerColor: 'red', isFaceUp: true, isLocked: false, isSelected: false, isPeeking: false };
-
-const steps: TutorialStep[] = [
+const TUTORIAL_STEPS = [
     {
-        title: "Welcome to Triple Seven",
-        description: "The goal is simple: get the LOWEST score possible. The game ends when the deck runs out.",
-        highlight: 'none',
-        buttonText: "Let's Start"
+        id: 'intro',
+        title: "Welcome to TUJUH",
+        text: "This is a card game where the LOWEST score wins. Let's learn how to play in under a minute.",
+        highlight: 'center'
     },
     {
+        id: 'hand',
         title: "Your Hand",
-        description: "You start with 4 face-down cards. You don't know what they are yet! It's a mystery.",
-        highlight: 'hand',
-        mockCards: [mockHiddenCard, mockHiddenCard, mockHiddenCard, mockHiddenCard]
+        text: "You start with 4 face-down cards. You don't know what they are initially! Your goal is to swap high cards for low ones.",
+        highlight: 'south'
     },
     {
-        title: "The Turn",
-        description: "On your turn, you draw a card from the Deck or the Discard Pile.",
-        highlight: 'deck',
-        mockCards: [mockHiddenCard, mockHiddenCard, mockHiddenCard, mockHiddenCard]
+        id: 'opponents',
+        title: "Opponents",
+        text: "These are your AI opponents. They also have hidden cards. You can mess with them using Power Cards.",
+        highlight: 'others'
     },
     {
-        title: "Values: The Good",
-        description: "7 is the Best card (0 points). Ace is 1 point. Low numbers are good!",
-        highlight: 'hand',
-        mockCards: [mockSeven, mockAce, mockHiddenCard, mockHiddenCard] // Reveal some
+        id: 'draw',
+        title: "Your Turn: Draw",
+        text: "On your turn, tap the Deck to draw a hidden card, or the Discard Pile to take the top face-up card.",
+        highlight: 'deck_area',
+        action: 'draw'
     },
     {
-        title: "Values: The Bad",
-        description: "Face cards (J, Q, K) are 10 points. But wait... Kings are 0 points in some variants? No, in standard Triple Seven here: 10, J, Q, K are 10 points. 7 is 0.",
-        highlight: 'hand',
-        mockCards: [mockSeven, mockAce, { ...mockKing, rank: 'Q' }, mockHiddenCard]
+        id: 'simulate_draw',
+        title: "Decision Time",
+        text: "You drew a card! Now, click one of your hidden cards to SWAP it, or click 'Discard' to throw this card away.",
+        highlight: 'south_interactive',
+        action: 'swap'
     },
     {
+        id: 'values',
+        title: "Card Values",
+        text: "7 is 0 points (BEST). Ace is 1 point. Face cards (J,Q,K,10) are 10 points. 2-9 are face value.",
+        highlight: 'center_card'
+    },
+    {
+        id: 'powers',
         title: "Power Cards",
-        description: "Some cards have Powers when discarded! 10 = Unlock, J = Swap, Q = Peek, K = Lock.",
-        highlight: 'deck',
-        mockCards: [mockSeven, mockAce, mockHiddenCard, mockHiddenCard]
+        text: "Discarding special cards triggers powers: 10 (Unlock), J (Swap), Q (Peek), K (Lock), Joker (Mass Swap).",
+        highlight: 'powers'
     },
     {
-        title: "The King (Lock)",
-        description: "Discarding a King lets you LOCK an opponent's card. Does nothing to your score directly, but annoys them.",
+        id: 'end',
+        title: "Ending the Game",
+        text: "The game ends when the Deck runs out. The player with the lowest total score wins!",
         highlight: 'none'
-    },
-    {
-        title: "The Joker",
-        description: "Jokers are worth 10 points (High!). BUT, discarding one triggers MASS SWAP. Rotates all hands!",
-        highlight: 'power_overlay'
-    },
-    {
-        title: "Winning",
-        description: "Keep swapping high cards for low ones. Remember your hidden cards. Lowest total score wins!",
-        highlight: 'score',
-        buttonText: "I'm Ready!"
     }
 ];
 
-export default function TutorialView() {
-    const [currentStep, setCurrentStep] = useState(0);
-    const { setPhase } = useGameStore();
+// Mock Data
+const MOCK_HIDDEN_CARD: CardType = { id: 'm-0', suit: 'spades', rank: '7', isFaceUp: false, isLocked: false, isJoker: false, isSelected: false, isPeeking: false };
+const MOCK_FACE_CARD: CardType = { id: 'm-1', suit: 'diamonds', rank: '7', isFaceUp: true, isLocked: false, isJoker: false, isSelected: false, isPeeking: false };
 
-    const step = steps[currentStep];
+const PLAYER_SOUTH = { id: 'p1', seatIndex: 0, kind: 'human' as const, name: 'You', isLocal: true, score: 0, hand: Array(4).fill(MOCK_HIDDEN_CARD) };
+const PLAYER_NORTH = { id: 'p2', seatIndex: 2, kind: 'ai' as const, name: 'AI North', isLocal: false, score: 0, hand: Array(4).fill(MOCK_HIDDEN_CARD) };
+const PLAYER_WEST = { id: 'p3', seatIndex: 1, kind: 'ai' as const, name: 'AI West', isLocal: false, score: 0, hand: Array(4).fill(MOCK_HIDDEN_CARD) };
+const PLAYER_EAST = { id: 'p4', seatIndex: 3, kind: 'ai' as const, name: 'AI East', isLocal: false, score: 0, hand: Array(4).fill(MOCK_HIDDEN_CARD) };
+
+export default function TutorialView() {
+    const { setPhase } = useGameStore();
+    const [stepIndex, setStepIndex] = useState(0);
+    const [mockDrawnCard, setMockDrawnCard] = useState<CardType | null>(null);
+
+    const step = TUTORIAL_STEPS[stepIndex];
 
     const handleNext = () => {
-        if (currentStep < steps.length - 1) {
-            setCurrentStep(c => c + 1);
+        if (step.action === 'draw' && !mockDrawnCard) {
+            // Simulate draw
+            setMockDrawnCard({ ...MOCK_FACE_CARD, id: 'drawn-1', rank: 'A', suit: 'hearts' });
+            setStepIndex(s => s + 1);
+        } else if (step.action === 'swap') {
+            // Simulate swap
+            setMockDrawnCard(null);
+            // Flash a toast or something?
+            setStepIndex(s => s + 1);
         } else {
-            setPhase('menu');
+            if (stepIndex < TUTORIAL_STEPS.length - 1) {
+                setStepIndex(s => s + 1);
+            } else {
+                setPhase('menu');
+            }
         }
     };
 
-    const progress = ((currentStep + 1) / steps.length) * 100;
+    const handlePrev = () => {
+        if (stepIndex > 0) setStepIndex(s => s - 1);
+    };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-zinc-950 text-white relative overflow-hidden p-6">
-            {/* Background Decor */}
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-violet-900/20 via-zinc-950 to-zinc-950 pointer-events-none" />
+        <div className="relative flex flex-col h-screen p-1 sm:p-2 overflow-hidden bg-[url('/background.png')] bg-cover bg-center">
 
-            <div className="absolute top-6 right-6">
-                <button
-                    onClick={() => setPhase('menu')}
-                    className="p-2 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors"
-                >
+            {/* Dark Overlay for focus */}
+            <div className="absolute inset-0 bg-black/60 z-30 pointer-events-none transition-colors duration-500" />
+
+            {/* EXIT BUTTON */}
+            <div className="absolute top-4 right-4 z-[60]">
+                <button onClick={() => setPhase('menu')} className="p-2 bg-zinc-900 rounded-full border border-zinc-700 text-zinc-400 hover:text-white">
                     <X className="w-6 h-6" />
                 </button>
             </div>
 
-            <div className="z-10 w-full max-w-4xl flex flex-col md:flex-row gap-12 items-center">
-
-                {/* Visual Stage */}
-                <div className="flex-1 w-full flex items-center justify-center min-h-[300px] relative bg-zinc-900/30 rounded-3xl border border-zinc-800 p-8 shadow-2xl">
-                    {step.highlight === 'none' && (
-                        <div className="text-center">
-                            <h1 className="text-4xl md:text-6xl font-black mb-4 tracking-tighter text-transparent bg-clip-text bg-gradient-to-br from-indigo-400 to-purple-600">
-                                TRIPLE<br />SEVEN
-                            </h1>
-                            <RotateCcw className="w-16 h-16 mx-auto text-zinc-600 animate-spin-slow" />
-                        </div>
-                    )}
-
-                    {step.highlight === 'hand' && step.mockCards && (
-                        <div className="flex gap-2">
-                            {step.mockCards.map((c, i) => (
-                                <motion.div
-                                    key={`${c.id}-${i}`}
-                                    initial={{ y: 50, opacity: 0 }}
-                                    animate={{ y: 0, opacity: 1 }}
-                                    transition={{ delay: i * 0.1 }}
-                                >
-                                    <Card card={c} showFace={c.isFaceUp} size="lg" />
-                                </motion.div>
-                            ))}
-                        </div>
-                    )}
-
-                    {step.highlight === 'deck' && (
-                        <div className="flex gap-8">
-                            <div className="w-24 h-36 bg-zinc-800 rounded-xl border-2 border-zinc-700 flex items-center justify-center relative shadow-xl">
-                                <span className="text-zinc-500 font-bold">DECK</span>
-                                {/* Highlight Ring */}
-                                <motion.div
-                                    className="absolute -inset-2 rounded-xl border-2 border-emerald-500"
-                                    animate={{ scale: [1, 1.05, 1], opacity: [0.5, 1, 0.5] }}
-                                    transition={{ repeat: Infinity, duration: 2 }}
-                                />
-                            </div>
-                            <div className="w-24 h-36 bg-zinc-800 rounded-xl border-2 border-zinc-700 flex items-center justify-center">
-                                <span className="text-zinc-600 text-xs">DISCARD</span>
-                            </div>
-                        </div>
-                    )}
-
-                    {step.highlight === 'power_overlay' && (
-                        <div className="flex gap-4">
-                            <motion.button
-                                className="flex flex-col items-center gap-2 p-4 bg-zinc-800 border border-green-500 rounded-xl text-green-400 shadow-[0_0_20px_rgba(34,197,94,0.3)]"
-                                animate={{ y: [-5, 5, -5] }}
-                                transition={{ repeat: Infinity, duration: 3 }}
-                            >
-                                <RotateCcw className="w-8 h-8" />
-                                <span>Rotate Left</span>
-                            </motion.button>
-                            <motion.button
-                                className="flex flex-col items-center gap-2 p-4 bg-zinc-800 border border-amber-500 rounded-xl text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]"
-                                animate={{ y: [5, -5, 5] }}
-                                transition={{ repeat: Infinity, duration: 3, delay: 1.5 }}
-                            >
-                                <RotateCw className="w-8 h-8" />
-                                <span>Rotate Right</span>
-                            </motion.button>
-                        </div>
-                    )}
-
-                    {step.highlight === 'score' && (
-                        <div className="text-center space-y-4">
-                            <div className="text-6xl font-black text-amber-500">0</div>
-                            <div className="text-xl text-zinc-300">Target Score</div>
-                        </div>
-                    )}
-                </div>
-
-                {/* Content Panel */}
-                <div className="flex-1 w-full max-w-md space-y-6">
-                    <div className="space-y-2">
-                        <span className="text-zinc-500 font-mono text-sm uppercase tracking-widest">
-                            Tutorial {currentStep + 1}/{steps.length}
+            {/* TUTORIAL CARD / DIALOG */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-[50] pointer-events-auto px-4">
+                <motion.div
+                    key={step.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-zinc-900/95 border border-zinc-700 p-6 rounded-2xl shadow-2xl backdrop-blur-xl"
+                >
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-xs font-bold uppercase">
+                            Step {stepIndex + 1}/{TUTORIAL_STEPS.length}
                         </span>
-                        <div className="h-1 w-full bg-zinc-800 rounded-full overflow-hidden">
-                            <motion.div
-                                className="h-full bg-violet-600"
-                                animate={{ width: `${progress}%` }}
-                            />
-                        </div>
+                        <h2 className="text-xl font-bold text-white text-shadow">{step.title}</h2>
                     </div>
 
-                    <AnimatePresence mode="wait">
-                        <motion.div
-                            key={currentStep}
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: -20 }}
-                            className="space-y-4"
-                        >
-                            <h2 className="text-3xl font-bold text-white">{step.title}</h2>
-                            <p className="text-lg text-zinc-400 leading-relaxed">
-                                {step.description}
-                            </p>
-                        </motion.div>
-                    </AnimatePresence>
+                    <p className="text-zinc-300 leading-relaxed mb-6 min-h-[60px]">
+                        {step.text}
+                    </p>
 
-                    <button
-                        onClick={handleNext}
-                        className="group flex items-center justify-between w-full p-4 bg-white hover:bg-zinc-200 text-black rounded-xl font-bold text-lg shadow-lg shadow-white/10 transition-all hover:scale-[1.02]"
-                    >
-                        <span>{step.buttonText || "Next"}</span>
-                        <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                    </button>
+                    <div className="flex items-center justify-between gap-4">
+                        <button
+                            onClick={handlePrev}
+                            disabled={stepIndex === 0}
+                            className="px-4 py-2 text-zinc-500 hover:text-zinc-300 disabled:opacity-30 font-medium"
+                        >
+                            Back
+                        </button>
+
+                        <button
+                            onClick={handleNext}
+                            className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-bold hover:scale-105 transition-transform shadow-lg shadow-white/10"
+                        >
+                            {stepIndex === TUTORIAL_STEPS.length - 1 ? "Finish" : (step.action === 'draw' ? "Draw Card" : step.action === 'swap' ? "Swap Card" : "Next")}
+                            <ArrowRight className="w-4 h-4" />
+                        </button>
+                    </div>
+                </motion.div>
+            </div>
+
+            {/* GAME BOARD MOCKUP (Behind Overlay) */}
+            <div className="flex-1 grid grid-cols-[auto_1fr_auto] grid-rows-[auto_1fr_auto] gap-1 min-h-0 relative z-20">
+
+                {/* --- HIGHLIGHT LOGIC --- */}
+                {/* We render highlighters behind the components but above the dark overlay? 
+                    Actually, simplest is to apply z-index 40 to the specific components we want highlighted.
+                */}
+
+                {/* NORTH */}
+                <div className={`col-start-2 row-start-1 flex justify-center items-start pt-1 ${step.highlight === 'others' || step.highlight === 'opponents' ? 'z-40 relative' : ''}`}>
+                    <PlayerHand player={PLAYER_NORTH} position="north" isInteractive={false} showFaces={false} isCurrentTurn={false} />
+                    {step.highlight === 'others' && <HighlightLabel text="Opponent" />}
+                </div>
+
+                {/* WEST */}
+                <div className={`col-start-1 row-start-2 flex items-center justify-center px-1 ${step.highlight === 'others' ? 'z-40 relative' : ''}`}>
+                    <PlayerHand player={PLAYER_WEST} position="west" isInteractive={false} showFaces={false} isCurrentTurn={false} />
+                </div>
+
+                {/* CENTER (DECK) */}
+                <div className={`col-start-2 row-start-2 flex items-center justify-center ${step.highlight === 'deck_area' || step.highlight === 'center' || step.highlight === 'center_card' ? 'z-40 relative' : ''}`}>
+                    <div className="flex items-center gap-3 sm:gap-6 relative">
+                        {/* DECK */}
+                        <div className="relative">
+                            <div className="w-16 h-24 sm:w-20 sm:h-30 rounded-xl overflow-hidden shadow-lg border-2 border-emerald-500 shadow-emerald-500/20">
+                                <div className="w-full h-full flex items-center justify-center" style={{ background: 'repeating-conic-gradient(#1a1a2e 0% 25%, #16213e 0% 50%) 50% / 16px 16px' }}>
+                                    <div className="absolute inset-2 rounded-lg border-2 border-red-500/20" />
+                                    <div className="flex flex-col items-center justify-center">
+                                        <span className="text-red-600/80 font-black tracking-[0.2em] text-xs sm:text-sm writing-mode-vertical rotate-180" style={{ writingMode: 'vertical-rl' }}>
+                                            TUJUH
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                            {step.highlight === 'deck_area' && !mockDrawnCard && (
+                                <motion.div
+                                    className="absolute inset-0 border-4 border-yellow-400 rounded-xl"
+                                    animate={{ opacity: [0.5, 1, 0.5], scale: [1, 1.05, 1] }}
+                                    transition={{ repeat: Infinity, duration: 2 }}
+                                />
+                            )}
+                        </div>
+
+                        {/* DRAWN CARD SPOT */}
+                        <AnimatePresence>
+                            {mockDrawnCard && (
+                                <motion.div
+                                    initial={{ scale: 0, rotateY: 180 }}
+                                    animate={{ scale: 1, rotateY: 0 }}
+                                    className="flex flex-col items-center gap-1"
+                                >
+                                    <CardComponent card={mockDrawnCard} showFace={true} size="md" />
+                                    <div className="px-2 py-1 bg-zinc-800 rounded text-[10px] text-zinc-400">Drawn</div>
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+
+                        {/* DISCARD */}
+                        <div className="relative">
+                            <div className="w-16 h-24 sm:w-20 sm:h-30 rounded-xl overflow-hidden shadow-lg border-2 border-zinc-700/80 bg-zinc-800">
+                                <div className="w-full h-full flex items-center justify-center bg-black/40">
+                                    <span className="text-zinc-600 text-xs">Empty</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* EAST */}
+                <div className={`col-start-3 row-start-2 flex items-center justify-center px-1 ${step.highlight === 'others' ? 'z-40 relative' : ''}`}>
+                    <PlayerHand player={PLAYER_EAST} position="east" isInteractive={false} showFaces={false} isCurrentTurn={false} />
+                </div>
+
+                {/* SOUTH (YOU) */}
+                <div className={`col-start-2 row-start-3 flex justify-center items-end pb-1 ${step.highlight === 'south' || step.highlight === 'south_interactive' ? 'z-40 relative' : ''}`}>
+                    <div className="relative">
+                        <PlayerHand
+                            player={PLAYER_SOUTH}
+                            position="south"
+                            isInteractive={step.highlight === 'south_interactive'}
+                            showFaces={false}
+                            isCurrentTurn={false}
+                            onCardClick={() => {
+                                if (step.action === 'swap') handleNext();
+                            }}
+                        />
+                        {step.highlight === 'south' && <HighlightLabel text="Your Hand (Hidden)" />}
+                        {step.highlight === 'south_interactive' && (
+                            <motion.div
+                                className="absolute -top-12 left-1/2 -translate-x-1/2 bg-yellow-500 text-black font-bold px-3 py-1 rounded-full text-xs shadow-lg whitespace-nowrap"
+                                animate={{ y: [0, -5, 0] }}
+                                transition={{ repeat: Infinity, duration: 1 }}
+                            >
+                                Tap a card to Swap!
+                            </motion.div>
+                        )}
+                    </div>
                 </div>
             </div>
-        </div>
+
+            {/* POWERS OVERLAY (Special Step) */}
+            <AnimatePresence>
+                {step.highlight === 'powers' && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-[45] flex items-center justify-center pointer-events-none"
+                    >
+                        {/* We use the text box for this, maybe just show some floating icons? */}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+        </div >
+    );
+}
+
+function HighlightLabel({ text }: { text: string }) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-emerald-500 text-black font-bold text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap"
+        >
+            {text}
+        </motion.div>
     );
 }
