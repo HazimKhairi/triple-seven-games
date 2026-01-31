@@ -35,9 +35,7 @@ export default function DebugPage() {
         });
 
         socket.on('connect', () => {
-            setStatus('connected');
-            addLog(`✅ Connected! Socket ID: ${socket.id}`);
-            addLog(`Connected to URL: ${socket.io.uri}`);
+            addLog(`Connected to URL: ${(socket.io as any).uri}`);
         });
 
         socket.on('disconnect', (reason) => {
