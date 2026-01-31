@@ -17,7 +17,8 @@ export type GamePhase =
   | 'turn_draw'
   | 'turn_decision'
   | 'power_target'
-  | 'game_over';
+  | 'game_over'
+  | 'tutorial';
 
 export type PlayerKind = 'human' | 'ai';
 
@@ -35,6 +36,7 @@ export interface Card {
   isLocked: boolean;
   isSelected: boolean;
   isPeeking: boolean;
+  powerUsed?: boolean;
 }
 
 export interface PlayerInfo {
@@ -89,9 +91,10 @@ export interface GameState {
   turnCount: number;
   roomId: string | null;
   isOnline: boolean;
-  swapSelectedOwnIndex: number | null;
+  swapSource: { seat: number; index: number } | null;
   turnTimer: number;         // seconds remaining for current turn
   turnTimerMax: number;      // max seconds per turn
+  isDiscardBurned: boolean;  // true if top discard was used as power
 }
 
 // Helper to get the image path for a card
@@ -113,7 +116,7 @@ export function getCardImagePath(card: Card): string {
 export const CARD_BACK_IMAGE = '/cards/back.svg';
 
 export function getCardValue(card: Card): number {
-  if (card.isJoker) return 0;
+  if (card.isJoker) return 10;
   if (card.rank === '7') return 0;
   if (card.rank === 'A') return 1;
   if (card.rank === '10' || card.rank === 'J' || card.rank === 'Q' || card.rank === 'K') return 10;
@@ -121,6 +124,7 @@ export function getCardValue(card: Card): number {
 }
 
 export function getCardPower(card: Card): PowerType | null {
+  if (card.powerUsed) return null;
   if (card.isJoker) return 'mass_swap';
   switch (card.rank) {
     case '10': return 'unlock';

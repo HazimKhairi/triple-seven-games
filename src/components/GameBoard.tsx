@@ -1,32 +1,32 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGameStore } from '@/store/game-store';
 import { useMultiplayer } from '@/hooks/useMultiplayer';
-import Card from './Card';
+import Link from 'next/link';
+import MainMenu from './MainMenu';
+import CardComponent from './Card';
 import PlayerHand from './PlayerHand';
 import Lobby from './Lobby';
-import { getCardImagePath, Difficulty, SeatPosition, GameConfig } from '@/types/game';
+import TutorialView from './TutorialView';
+import { getCardImagePath, Difficulty, SeatPosition, GameConfig, getCardPower, Card as CardType, powerName } from '@/types/game';
 import {
   Layers,
   Trash2,
   RotateCcw,
+  RotateCw,
   Crown,
   Swords,
   Eye,
   Lock,
   Unlock,
   Shuffle,
-  Users,
-  Bot,
-  Minus,
-  Plus,
-  Globe,
-  Monitor,
-  ArrowLeft,
   Clock,
+  Smile,
 } from 'lucide-react';
+
+const EMOTES = ['😀', '🤔', '😱', '😡', '😎', '😭'];
 
 const powerIcons = {
   unlock: Unlock,
@@ -45,8 +45,6 @@ const powerInstructions = {
 };
 
 const SEAT_TO_POSITION: SeatPosition[] = ['south', 'west', 'north', 'east'];
-
-type MenuStep = 'mode' | 'difficulty' | 'players' | 'online_setup';
 
 export default function GameBoard() {
   const {
@@ -68,18 +66,29 @@ export default function GameBoard() {
     swapWithHand,
     discardDrawn,
     selectPowerTarget,
+    rotateHands,
     startGame,
     resetGame,
+    setPhase, // destructure setPhase
   } = useGameStore();
 
   const mp = useMultiplayer();
+  const [powerDecision, setPowerDecision] = useState<{ type: 'discard' | 'swap', card?: CardType, handIndex?: number } | null>(null);
+  const [showEmotes, setShowEmotes] = useState(false);
+  const [dismissedPowerCardId, setDismissedPowerCardId] = useState<string | null>(null);
 
-  const [menuStep, setMenuStep] = useState<MenuStep>('mode');
-  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty>('beginner');
-  const [humanCount, setHumanCount] = useState(1);
-  const [playerName, setPlayerName] = useState('');
-  const [joinRoomId, setJoinRoomId] = useState('');
-  const [onlineAction, setOnlineAction] = useState<'create' | 'join'>('create');
+  const handleEmote = (emote: string) => {
+    useGameStore.getState().addToast(`You: ${emote}`, 'info');
+    setShowEmotes(false);
+    // In a full implementation, we would send this to the server:
+    // if (isOnline) mp.sendAction({ type: 'emote', emote });
+  };
+
+  // Sound effect
+  const playFlipSound = () => {
+    const audio = new Audio('/flipcard.mp3');
+    audio.play().catch(() => { }); // catch error if user hasn't interacted yet
+  };
 
   const discardTop = discardPile.length > 0 ? discardPile[discardPile.length - 1] : null;
   const localPlayer = players[localPlayerSeat];
@@ -89,8 +98,11 @@ export default function GameBoard() {
   const canDecide = phase === 'turn_decision' && isLocalTurn;
   const canTargetPower = phase === 'power_target' && currentTurnSeat === localPlayerSeat;
 
+
+
   // Dispatch actions: online sends via WS, offline uses local store
   const handleDrawFromDeck = () => {
+    playFlipSound();
     if (isOnline) {
       mp.sendAction({ type: 'draw_from_deck' });
     } else {
@@ -99,6 +111,7 @@ export default function GameBoard() {
   };
 
   const handleDrawFromDiscard = () => {
+    playFlipSound();
     if (isOnline) {
       mp.sendAction({ type: 'draw_from_discard' });
     } else {
@@ -106,20 +119,76 @@ export default function GameBoard() {
     }
   };
 
-  const handleSwapWithHand = (handIndex: number) => {
+  const handleSwapWithHand = (handIndex: number, usePower: boolean = true) => {
+    // Intercept for power decision only if local
+    if (!isOnline && usePower) { // check if we need to verify power
+      const cardToDiscard = localPlayer.hand[handIndex];
+      const power = getCardPower(cardToDiscard);
+      if (power) {
+        setPowerDecision({ type: 'swap', card: cardToDiscard, handIndex });
+        return;
+      }
+    }
+
+    playFlipSound();
     if (isOnline) {
       mp.sendAction({ type: 'swap_with_hand', handIndex });
     } else {
-      swapWithHand(handIndex);
+      swapWithHand(handIndex, usePower);
     }
   };
 
-  const handleDiscardDrawn = () => {
+  const handleDiscardDrawn = (usePower: boolean = true) => {
+    // Intercept for power decision
+    if (!isOnline && usePower) {
+      if (drawnCard) {
+        const power = getCardPower(drawnCard);
+        if (power) {
+          setPowerDecision({ type: 'discard', card: drawnCard });
+          return;
+        }
+      }
+    }
+
+    playFlipSound();
     if (isOnline) {
       mp.sendAction({ type: 'discard_drawn' });
     } else {
-      discardDrawn();
+      discardDrawn(usePower);
     }
+  };
+
+  const confirmPowerUsage = (usePower: boolean) => {
+    if (!powerDecision) return;
+
+    if (powerDecision.type === 'swap' && powerDecision.handIndex !== undefined) {
+      // handleSwapWithHand(powerDecision.handIndex, usePower);
+      // Bypass interceptor
+      playFlipSound();
+      if (isOnline) {
+        mp.sendAction({ type: 'swap_with_hand', handIndex: powerDecision.handIndex });
+      } else {
+        swapWithHand(powerDecision.handIndex, usePower);
+      }
+    } else if (powerDecision.type === 'discard') {
+      // handleDiscardDrawn(usePower);
+      // Bypass interceptor
+      playFlipSound();
+      if (isOnline) {
+        mp.sendAction({ type: 'discard_drawn' });
+      } else {
+        discardDrawn(usePower);
+      }
+    }
+    setPowerDecision(null);
+  };
+
+  const cancelPowerUsage = () => {
+    // User chose to "Swap" or "Cancel" from auto-prompt
+    if (powerDecision?.card) {
+      setDismissedPowerCardId(powerDecision.card.id);
+    }
+    setPowerDecision(null);
   };
 
   const handleSelectPowerTarget = (targetSeat: number, targetIndex: number) => {
@@ -130,26 +199,51 @@ export default function GameBoard() {
     }
   };
 
+  const handleRotateHands = (direction: 'left' | 'right') => {
+    if (isOnline) {
+      // Offline/Local only for now
+    } else {
+      rotateHands(direction);
+    }
+  };
+
   // Handle card clicks for any seat
   const handleCardClick = (seatIndex: number, cardIndex: number) => {
     if (canDecide && seatIndex === localPlayerSeat && drawnCard) {
       handleSwapWithHand(cardIndex);
     } else if (canTargetPower && activePower) {
-      if (activePower === 'mass_swap' && seatIndex !== localPlayerSeat) {
-        handleSelectPowerTarget(seatIndex, 0);
+      if (activePower === 'mass_swap') {
+        // do nothing, wait for UI buttons
       } else {
         handleSelectPowerTarget(seatIndex, cardIndex);
       }
     }
   };
 
-  const handleStartLocalGame = () => {
+  // EFFECT: Auto-trigger prompt if drawn card has power
+  useEffect(() => {
+    if (canDecide && drawnCard && !isOnline) {
+      // Only if not already dismissed
+      if (drawnCard.id === dismissedPowerCardId) return;
+
+      const power = getCardPower(drawnCard);
+      if (power) {
+        // We only auto-trigger for 'discard' scenario initially (using the drawn card)
+        // The user might want to Swap (keep card), acts as "Cancel"
+        if (!powerDecision) {
+          setPowerDecision({ type: 'discard', card: drawnCard });
+        }
+      }
+    }
+  }, [drawnCard, canDecide, isOnline, dismissedPowerCardId, powerDecision]);
+
+
+  const handleStartLocalGame = ({ difficulty, humanCount, aiNames }: { difficulty: Difficulty; humanCount: number; aiNames: string[] }) => {
     const names = ['You', 'Player 2', 'Player 3', 'Player 4'];
-    const aiNames = ['AI West', 'AI North', 'AI East'];
     let aiIdx = 0;
 
     const config: GameConfig = {
-      difficulty: selectedDifficulty,
+      difficulty,
       isOnline: false,
       seats: Array.from({ length: 4 }, (_, i) => {
         const isHuman = i < humanCount;
@@ -161,25 +255,23 @@ export default function GameBoard() {
       }),
     };
     startGame(config);
-    setMenuStep('mode');
   };
 
-  const handleCreateOnlineRoom = () => {
-    const name = playerName.trim() || 'Player';
-    mp.createRoom(name, selectedDifficulty);
+  const handleCreateOnlineRoom = (name: string, difficulty: Difficulty) => {
+    mp.createRoom(name, difficulty);
   };
 
-  const handleJoinOnlineRoom = () => {
-    const name = playerName.trim() || 'Player';
-    const code = joinRoomId.trim().toUpperCase();
-    if (!code) return;
-    mp.joinRoom(code, name);
+  const handleJoinOnlineRoom = (roomId: string, name: string) => {
+    mp.joinRoom(roomId, name);
   };
 
   const handleBackToMenu = () => {
     mp.disconnect();
     resetGame();
-    setMenuStep('mode');
+  };
+
+  const handleStartTutorial = () => {
+    setPhase('tutorial');
   };
 
   // Get the relative position for a seat (relative to local player's seat)
@@ -205,285 +297,20 @@ export default function GameBoard() {
   // ===== MENU SCREEN =====
   if (phase === 'menu') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-8 p-4">
-        <motion.div
-          initial={{ opacity: 0, y: -30 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center"
-        >
-          <h1 className="text-5xl sm:text-7xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-amber-400 to-red-500 mb-2">
-            777
-          </h1>
-          <p className="text-zinc-400 text-lg">Triple Seven</p>
-        </motion.div>
-
-        <AnimatePresence mode="wait">
-          {/* Step 1: Choose mode */}
-          {menuStep === 'mode' && (
-            <motion.div
-              key="mode"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="flex flex-col gap-3 w-full max-w-xs"
-            >
-              <p className="text-center text-zinc-500 text-sm mb-2">Choose Game Mode</p>
-              <motion.button
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.1 }}
-                onClick={() => setMenuStep('difficulty')}
-                className="flex items-center justify-center gap-3 w-full py-3 px-6 rounded-xl font-semibold text-sm transition-all duration-200 border bg-emerald-600/20 border-emerald-600 text-emerald-400 hover:bg-emerald-600/30"
-              >
-                <Monitor className="w-5 h-5" />
-                Local Game
-              </motion.button>
-              <motion.button
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.2 }}
-                onClick={() => setMenuStep('online_setup')}
-                className="flex items-center justify-center gap-3 w-full py-3 px-6 rounded-xl font-semibold text-sm transition-all duration-200 border bg-violet-600/20 border-violet-600 text-violet-400 hover:bg-violet-600/30"
-              >
-                <Globe className="w-5 h-5" />
-                Online Multiplayer
-              </motion.button>
-            </motion.div>
-          )}
-
-          {/* Step 2a: Difficulty (local path) */}
-          {menuStep === 'difficulty' && (
-            <motion.div
-              key="difficulty"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="flex flex-col gap-3 w-full max-w-xs"
-            >
-              <p className="text-center text-zinc-500 text-sm mb-2">Select Difficulty</p>
-              {(['beginner', 'intermediate', 'hardcore'] as const).map((diff, i) => (
-                <motion.button
-                  key={diff}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.1 + i * 0.1 }}
-                  onClick={() => { setSelectedDifficulty(diff); setMenuStep('players'); }}
-                  className={`w-full py-3 px-6 rounded-xl font-semibold text-sm uppercase tracking-wider transition-all duration-200 border ${
-                    diff === 'beginner'
-                      ? 'bg-emerald-600/20 border-emerald-600 text-emerald-400 hover:bg-emerald-600/30'
-                      : diff === 'intermediate'
-                      ? 'bg-amber-600/20 border-amber-600 text-amber-400 hover:bg-amber-600/30'
-                      : 'bg-red-600/20 border-red-600 text-red-400 hover:bg-red-600/30'
-                  }`}
-                >
-                  {diff}
-                </motion.button>
-              ))}
-              <button
-                onClick={() => setMenuStep('mode')}
-                className="mt-2 py-2 text-zinc-500 text-sm hover:text-zinc-300"
-              >
-                Back
-              </button>
-            </motion.div>
-          )}
-
-          {/* Step 2b: Player count (local path) */}
-          {menuStep === 'players' && (
-            <motion.div
-              key="players"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="flex flex-col gap-4 w-full max-w-xs items-center"
-            >
-              <p className="text-center text-zinc-500 text-sm">How many human players?</p>
-
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => setHumanCount(Math.max(1, humanCount - 1))}
-                  className="p-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700">
-                  <Users className="w-4 h-4 text-emerald-400" />
-                  <span className="text-2xl font-bold text-zinc-100 w-6 text-center">{humanCount}</span>
-                </div>
-                <button
-                  onClick={() => setHumanCount(Math.min(4, humanCount + 1))}
-                  className="p-2 rounded-lg bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Seat preview */}
-              <div className="grid grid-cols-4 gap-2 w-full">
-                {Array.from({ length: 4 }, (_, i) => (
-                  <div
-                    key={i}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border ${
-                      i < humanCount
-                        ? 'bg-emerald-600/10 border-emerald-600/30 text-emerald-400'
-                        : 'bg-zinc-800/50 border-zinc-700/50 text-zinc-500'
-                    }`}
-                  >
-                    {i < humanCount ? (
-                      <Users className="w-4 h-4" />
-                    ) : (
-                      <Bot className="w-4 h-4" />
-                    )}
-                    <span className="text-[10px]">
-                      {['South', 'West', 'North', 'East'][i]}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex gap-2 w-full">
-                <button
-                  onClick={() => setMenuStep('difficulty')}
-                  className="flex-1 py-2 px-4 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-400 text-sm hover:bg-zinc-700"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleStartLocalGame}
-                  className="flex-1 py-2 px-4 rounded-xl bg-emerald-600 border border-emerald-500 text-white text-sm font-semibold hover:bg-emerald-500"
-                >
-                  Start Game
-                </button>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Step 2c: Online setup */}
-          {menuStep === 'online_setup' && (
-            <motion.div
-              key="online"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="flex flex-col gap-4 w-full max-w-xs items-center"
-            >
-              <p className="text-center text-zinc-500 text-sm">Online Multiplayer</p>
-
-              {/* Name input */}
-              <div className="w-full">
-                <label className="text-zinc-500 text-xs mb-1 block">Your Name</label>
-                <input
-                  type="text"
-                  value={playerName}
-                  onChange={(e) => setPlayerName(e.target.value)}
-                  placeholder="Enter your name..."
-                  maxLength={16}
-                  className="w-full px-4 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
-                />
-              </div>
-
-              {/* Toggle create / join */}
-              <div className="flex rounded-xl overflow-hidden border border-zinc-700 w-full">
-                <button
-                  onClick={() => setOnlineAction('create')}
-                  className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                    onlineAction === 'create'
-                      ? 'bg-violet-600/30 text-violet-300'
-                      : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  Create Room
-                </button>
-                <button
-                  onClick={() => setOnlineAction('join')}
-                  className={`flex-1 py-2 text-sm font-medium transition-colors ${
-                    onlineAction === 'join'
-                      ? 'bg-violet-600/30 text-violet-300'
-                      : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  Join Room
-                </button>
-              </div>
-
-              {onlineAction === 'create' ? (
-                <div className="flex flex-col gap-3 w-full">
-                  <label className="text-zinc-500 text-xs">AI Difficulty (for empty seats)</label>
-                  <div className="flex gap-2">
-                    {(['beginner', 'intermediate', 'hardcore'] as const).map((diff) => (
-                      <button
-                        key={diff}
-                        onClick={() => setSelectedDifficulty(diff)}
-                        className={`flex-1 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                          selectedDifficulty === diff
-                            ? diff === 'beginner'
-                              ? 'bg-emerald-600/20 border-emerald-600 text-emerald-400'
-                              : diff === 'intermediate'
-                              ? 'bg-amber-600/20 border-amber-600 text-amber-400'
-                              : 'bg-red-600/20 border-red-600 text-red-400'
-                            : 'bg-zinc-800 border-zinc-700 text-zinc-500 hover:text-zinc-300'
-                        }`}
-                      >
-                        {diff.charAt(0).toUpperCase() + diff.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    onClick={handleCreateOnlineRoom}
-                    disabled={mp.isConnecting}
-                    className="w-full py-2.5 rounded-xl bg-violet-600 border border-violet-500 text-white text-sm font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50"
-                  >
-                    {mp.isConnecting ? 'Connecting...' : 'Create Room'}
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3 w-full">
-                  <label className="text-zinc-500 text-xs">Room Code</label>
-                  <input
-                    type="text"
-                    value={joinRoomId}
-                    onChange={(e) => setJoinRoomId(e.target.value.toUpperCase())}
-                    placeholder="Enter room code..."
-                    maxLength={6}
-                    className="w-full px-4 py-2.5 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-100 text-sm font-mono tracking-[0.2em] text-center placeholder:text-zinc-600 focus:outline-none focus:border-violet-500"
-                  />
-                  <button
-                    onClick={handleJoinOnlineRoom}
-                    disabled={mp.isConnecting || !joinRoomId.trim()}
-                    className="w-full py-2.5 rounded-xl bg-violet-600 border border-violet-500 text-white text-sm font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50"
-                  >
-                    {mp.isConnecting ? 'Connecting...' : 'Join Room'}
-                  </button>
-                </div>
-              )}
-
-              {mp.error && (
-                <p className="text-red-400 text-xs">{mp.error}</p>
-              )}
-
-              <button
-                onClick={() => { setMenuStep('mode'); mp.disconnect(); }}
-                className="flex items-center gap-2 py-2 text-zinc-500 text-sm hover:text-zinc-300"
-              >
-                <ArrowLeft className="w-3 h-3" />
-                Back
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.7 }}
-          className="max-w-md text-center text-zinc-600 text-xs leading-relaxed mt-4"
-        >
-          <p className="mb-2 text-zinc-400 font-medium">How to Play</p>
-          <p>4 players, lowest score wins. 7 = 0 pts (best). Face cards = 10 pts.</p>
-          <p>Draw a card, then keep it (swap) or discard it. Power cards trigger on discard.</p>
-        </motion.div>
-      </div>
+      <MainMenu
+        onStartLocalGame={handleStartLocalGame}
+        onCreateOnlineRoom={handleCreateOnlineRoom}
+        onJoinOnlineRoom={handleJoinOnlineRoom}
+        onStartTutorial={handleStartTutorial}
+        isConnecting={mp.isConnecting}
+        error={mp.error}
+      />
     );
+  }
+
+  // ===== TUTORIAL SCREEN =====
+  if (phase === 'tutorial') {
+    return <TutorialView />;
   }
 
   // ===== GAME OVER SCREEN =====
@@ -492,12 +319,12 @@ export default function GameBoard() {
     const localWon = winnerSeat === localPlayerSeat;
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-4">
+      <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-4 bg-[url('/background.png')] bg-cover bg-center">
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ type: 'spring', stiffness: 200 }}
-          className="text-center"
+          className="text-center relative z-10 p-8 rounded-2xl bg-black/60 backdrop-blur-md border border-zinc-700"
         >
           <Crown className={`w-16 h-16 mx-auto mb-4 ${localWon ? 'text-amber-400' : 'text-zinc-500'}`} />
           <h2 className="text-3xl font-bold mb-2">
@@ -507,18 +334,17 @@ export default function GameBoard() {
         </motion.div>
 
         {/* Rankings */}
-        <div className="flex flex-col gap-2 w-full max-w-sm">
+        <div className="flex flex-col gap-2 w-full max-w-sm relative z-10">
           {sortedPlayers.map((p, rank) => (
             <motion.div
               key={p.id}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: rank * 0.15 }}
-              className={`flex items-center justify-between px-4 py-3 rounded-xl border ${
-                p.seatIndex === winnerSeat
-                  ? 'bg-amber-600/10 border-amber-500/40'
-                  : 'bg-zinc-800/50 border-zinc-700/50'
-              }`}
+              className={`flex items-center justify-between px-4 py-3 rounded-xl border ${p.seatIndex === winnerSeat
+                ? 'bg-amber-600/10 border-amber-500/40'
+                : 'bg-zinc-800/80 border-zinc-700/50'
+                }`}
             >
               <div className="flex items-center gap-3">
                 <span className={`text-lg font-bold ${rank === 0 ? 'text-amber-400' : 'text-zinc-500'}`}>
@@ -536,13 +362,13 @@ export default function GameBoard() {
         </div>
 
         {/* Reveal hands */}
-        <div className="flex flex-wrap gap-4 justify-center">
+        <div className="flex flex-wrap gap-4 justify-center relative z-10">
           {sortedPlayers.map((p, rank) => (
-            <div key={p.id} className="flex flex-col items-center">
-              <p className="text-[10px] text-zinc-500 mb-1">{p.name}</p>
+            <div key={p.id} className="flex flex-col items-center p-2 rounded-lg bg-black/40 backdrop-blur-sm">
+              <p className="text-[10px] text-zinc-400 mb-1">{p.name}</p>
               <div className="flex gap-1">
                 {p.hand.map((card, i) => (
-                  <Card key={card.id} card={card} showFace={true} size="sm" delay={rank * 0.2 + i * 0.05} />
+                  <CardComponent key={card.id} card={card} showFace={true} size="sm" delay={rank * 0.2 + i * 0.05} />
                 ))}
               </div>
             </div>
@@ -554,7 +380,7 @@ export default function GameBoard() {
           animate={{ opacity: 1 }}
           transition={{ delay: 1.2 }}
           onClick={() => { handleBackToMenu(); }}
-          className="flex items-center gap-2 py-3 px-6 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 transition-colors"
+          className="relative z-10 flex items-center gap-2 py-3 px-6 rounded-xl bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 transition-colors"
         >
           <RotateCcw className="w-4 h-4" />
           Play Again
@@ -576,16 +402,15 @@ export default function GameBoard() {
   const isAnyLocalTurn = isLocalTurn;
 
   return (
-    <div className="flex flex-col h-screen p-1 sm:p-2 overflow-hidden">
+    <div className="flex flex-col h-screen p-1 sm:p-2 overflow-hidden bg-[url('/background.png')] bg-cover bg-center">
       {/* Status bar */}
-      <div className="flex items-center justify-between px-3 py-1.5 mb-1 rounded-lg bg-zinc-900/50 border border-zinc-800 shrink-0">
+      <div className="flex items-center justify-between px-3 py-1.5 mb-1 rounded-lg bg-zinc-900/80 backdrop-blur-md border border-zinc-700/50 shrink-0">
         <div className="flex items-center gap-3">
           <span className="text-xs text-zinc-500">Round {turnCount + 1}</span>
-          <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-            isAnyLocalTurn
-              ? 'bg-emerald-600/20 text-emerald-400'
-              : 'bg-violet-600/20 text-violet-400'
-          }`}>
+          <span className={`text-xs font-medium px-2 py-0.5 rounded ${isAnyLocalTurn
+            ? 'bg-emerald-600/20 text-emerald-400'
+            : 'bg-violet-600/20 text-violet-400'
+            }`}>
             {isAnyLocalTurn ? 'Your Turn' : `${currentPlayerName}'s turn...`}
           </span>
           {isOnline && (
@@ -597,25 +422,23 @@ export default function GameBoard() {
         <div className="flex items-center gap-3">
           {/* Turn timer */}
           {isAnyLocalTurn && (phase === 'turn_draw' || phase === 'turn_decision' || phase === 'power_target') && (
-            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono font-bold ${
-              turnTimer <= 5
-                ? 'bg-red-600/20 text-red-400'
-                : turnTimer <= 10
+            <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-mono font-bold ${turnTimer <= 5
+              ? 'bg-red-600/20 text-red-400'
+              : turnTimer <= 10
                 ? 'bg-amber-600/20 text-amber-400'
                 : 'bg-zinc-800/50 text-zinc-300'
-            }`}>
+              }`}>
               <Clock className="w-3 h-3" />
               <span>{turnTimer}s</span>
               {/* Timer bar */}
               <div className="w-12 h-1.5 bg-zinc-700 rounded-full overflow-hidden ml-1">
                 <motion.div
-                  className={`h-full rounded-full ${
-                    turnTimer <= 5
-                      ? 'bg-red-500'
-                      : turnTimer <= 10
+                  className={`h-full rounded-full ${turnTimer <= 5
+                    ? 'bg-red-500'
+                    : turnTimer <= 10
                       ? 'bg-amber-500'
                       : 'bg-emerald-500'
-                  }`}
+                    }`}
                   initial={false}
                   animate={{ width: `${(turnTimer / turnTimerMax) * 100}%` }}
                   transition={{ duration: 0.3 }}
@@ -637,7 +460,7 @@ export default function GameBoard() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="flex items-center justify-center gap-2 px-3 py-1.5 mb-1 rounded-lg bg-violet-900/30 border border-violet-700 text-violet-300 text-xs sm:text-sm shrink-0"
+            className="flex items-center justify-center gap-2 px-3 py-1.5 mb-1 rounded-lg bg-violet-900/60 backdrop-blur-sm border border-violet-500/50 text-violet-200 text-xs sm:text-sm shrink-0"
           >
             {(() => {
               const Icon = powerIcons[activePower];
@@ -687,9 +510,8 @@ export default function GameBoard() {
               whileTap={canDraw ? { scale: 0.95 } : undefined}
               style={{ cursor: canDraw ? 'pointer' : 'default' }}
             >
-              <div className={`w-16 h-24 sm:w-20 sm:h-30 rounded-xl overflow-hidden shadow-lg border-2 ${
-                canDraw ? 'border-emerald-500 shadow-emerald-500/20' : 'border-zinc-700'
-              }`}>
+              <div className={`w-16 h-24 sm:w-20 sm:h-30 rounded-xl overflow-hidden shadow-lg border-2 ${canDraw ? 'border-emerald-500 shadow-emerald-500/20' : 'border-zinc-700/80 bg-zinc-800/80'
+                }`}>
                 {deck.length > 0 ? (
                   <div className="w-full h-full flex items-center justify-center"
                     style={{ background: 'repeating-conic-gradient(#1a1a2e 0% 25%, #16213e 0% 50%) 50% / 16px 16px' }}
@@ -707,7 +529,7 @@ export default function GameBoard() {
                   </div>
                 )}
               </div>
-              <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-zinc-500 whitespace-nowrap">
+              <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-zinc-400 whitespace-nowrap bg-black/40 px-1 rounded">
                 Deck ({deck.length})
               </span>
             </motion.div>
@@ -722,10 +544,10 @@ export default function GameBoard() {
                   transition={{ duration: 0.5, type: 'spring' }}
                   className="flex flex-col items-center gap-1"
                 >
-                  <Card card={drawnCard} showFace={true} size="md" />
+                  <CardComponent card={drawnCard} showFace={true} size="md" />
                   <button
-                    onClick={handleDiscardDrawn}
-                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red-600/20 border border-red-600 text-red-400 text-[10px] hover:bg-red-600/30 transition-colors"
+                    onClick={() => handleDiscardDrawn()}
+                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-red-600/80 border border-red-500 text-white text-[10px] hover:bg-red-500 transition-colors shadow-lg"
                   >
                     <Trash2 className="w-3 h-3" />
                     Discard
@@ -742,9 +564,8 @@ export default function GameBoard() {
               whileTap={canDraw && discardTop ? { scale: 0.95 } : undefined}
               style={{ cursor: canDraw && discardTop ? 'pointer' : 'default' }}
             >
-              <div className={`w-16 h-24 sm:w-20 sm:h-30 rounded-xl overflow-hidden shadow-lg border-2 ${
-                canDraw && discardTop ? 'border-amber-500 shadow-amber-500/20' : 'border-zinc-700'
-              }`}>
+              <div className={`w-16 h-24 sm:w-20 sm:h-30 rounded-xl overflow-hidden shadow-lg border-2 bg-zinc-800/80 ${canDraw && discardTop ? 'border-amber-500 shadow-amber-500/20' : 'border-zinc-700/80'
+                }`}>
                 {discardTop ? (
                   <img src={getCardImagePath(discardTop)} alt="Discard pile" className="w-full h-full object-cover" draggable={false} />
                 ) : (
@@ -753,7 +574,7 @@ export default function GameBoard() {
                   </div>
                 )}
               </div>
-              <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-zinc-500 whitespace-nowrap">
+              <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] text-zinc-400 whitespace-nowrap bg-black/40 px-1 rounded">
                 Discard ({discardPile.length})
               </span>
             </motion.div>
@@ -787,6 +608,86 @@ export default function GameBoard() {
         </div>
       </div>
 
+      {/* Power Action Overlay - Mass Swap */}
+      <AnimatePresence>
+        {canTargetPower && activePower === 'mass_swap' && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          >
+            <div className="flex flex-col items-center gap-6 p-8 bg-zinc-900 border border-amber-500/50 rounded-2xl shadow-2xl shadow-amber-500/20">
+              <h3 className="text-2xl font-bold text-amber-400">Joker Mass Swap</h3>
+              <p className="text-zinc-400 text-center max-w-xs">
+                Select a direction to rotate all hands!
+              </p>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => handleRotateHands('left')}
+                  className="flex flex-col items-center gap-2 p-4 rounded-xl bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:border-amber-500 transition-all group"
+                >
+                  <RotateCcw className="w-8 h-8 text-zinc-400 group-hover:text-amber-400" />
+                  <span className="text-sm font-medium text-zinc-300 group-hover:text-white">Rotate Left</span>
+                </button>
+                <button
+                  onClick={() => handleRotateHands('right')}
+                  className="flex flex-col items-center gap-2 p-4 rounded-xl bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:border-amber-500 transition-all group"
+                >
+                  <RotateCw className="w-8 h-8 text-zinc-400 group-hover:text-amber-400" />
+                  <span className="text-sm font-medium text-zinc-300 group-hover:text-white">Rotate Right</span>
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Power Decision Modal */}
+      <AnimatePresence>
+        {powerDecision && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm h-full w-full"
+          >
+            <div className="flex flex-col items-center gap-4 p-6 bg-zinc-900 border border-violet-500/50 rounded-2xl shadow-2xl">
+              <h3 className="text-xl font-bold text-violet-400">Card Power Available!</h3>
+              {powerDecision.card && (
+                <div className="transform scale-75">
+                  {/* We don't have to show card unless we want to, but it's nice. */}
+                  <CardComponent card={{ ...powerDecision.card, isFaceUp: true }} showFace={true} size="lg" />
+                </div>
+              )}
+              <p className="text-zinc-300 max-w-xs text-center">
+                Do you want to use the <span className="text-white font-bold">{powerName(getCardPower(powerDecision.card!) || 'unlock')}</span> power?
+              </p>
+              <div className="flex flex-col gap-2 mt-2 w-full">
+                <button
+                  onClick={() => confirmPowerUsage(true)}
+                  className="w-full px-4 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl font-bold transition-colors shadow-lg shadow-violet-500/20"
+                >
+                  Yes, Use Power
+                </button>
+                <button
+                  onClick={() => confirmPowerUsage(false)}
+                  className="w-full px-4 py-3 bg-zinc-700 hover:bg-zinc-600 text-white rounded-xl font-medium transition-colors"
+                >
+                  No, Just Discard
+                </button>
+                <button
+                  onClick={cancelPowerUsage}
+                  className="w-full px-4 py-2 text-sm text-zinc-400 hover:text-white transition-colors"
+                >
+                  Cancel (Swap with Hand)
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Phase instructions */}
       <AnimatePresence mode="wait">
         <motion.div
@@ -794,12 +695,42 @@ export default function GameBoard() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="text-center text-[10px] sm:text-xs text-zinc-500 py-1 shrink-0"
+          className="text-center text-[10px] sm:text-xs text-zinc-400 py-1 shrink-0 bg-black/30 backdrop-blur-sm rounded-full px-4 mx-auto mt-2"
         >
           {canDraw && 'Draw a card from the deck or discard pile.'}
           {canDecide && 'Click a card in your hand to swap, or discard the drawn card.'}
-          {!isAnyLocalTurn && phase === 'turn_draw' && `${currentPlayerName} is drawing...`}
+          {!isAnyLocalTurn && phase === 'turn_draw' && `${currentPlayerName} ${players[currentTurnSeat]?.kind === 'ai' ? 'is thinking...' : 'is drawing...'}`}
         </motion.div>
+
+        {/* Emote Button */}
+        <div className="absolute bottom-4 right-4 z-40">
+          <AnimatePresence>
+            {showEmotes && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.8, y: 10 }}
+                className="absolute bottom-12 right-0 flex flex-col gap-2 p-2 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl min-w-[40px]"
+              >
+                {EMOTES.map(emoji => (
+                  <button
+                    key={emoji}
+                    onClick={() => handleEmote(emoji)}
+                    className="text-2xl hover:scale-125 transition-transform"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <button
+            onClick={() => setShowEmotes(!showEmotes)}
+            className="p-3 bg-zinc-800 border border-zinc-700 rounded-full text-zinc-400 hover:text-amber-400 hover:border-amber-500 transition-colors shadow-lg"
+          >
+            <Smile className="w-6 h-6" />
+          </button>
+        </div>
       </AnimatePresence>
     </div>
   );

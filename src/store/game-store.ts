@@ -39,9 +39,10 @@ interface GameActions {
   resetGame: () => void;
   drawFromDeck: () => void;
   drawFromDiscard: () => void;
-  swapWithHand: (handIndex: number) => void;
-  discardDrawn: () => void;
+  swapWithHand: (handIndex: number, usePower?: boolean) => void;
+  discardDrawn: (usePower?: boolean) => void;
   selectPowerTarget: (targetSeat: number, targetIndex: number) => void;
+  rotateHands: (direction: 'left' | 'right') => void;
   executeAITurn: (seat: number) => void;
   _endTurn: () => void;
   _endGame: () => void;
@@ -71,9 +72,10 @@ const initialState: Omit<GameState, keyof GameActions> = {
   turnCount: 0,
   roomId: null,
   isOnline: false,
-  swapSelectedOwnIndex: null,
+  swapSource: null,
   turnTimer: TURN_TIMER_SECONDS,
   turnTimerMax: TURN_TIMER_SECONDS,
+  isDiscardBurned: false,
 };
 
 export const useGameStore = create<GameState & GameActions>((set, get) => ({
@@ -129,9 +131,10 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       turnCount: 0,
       roomId: null,
       isOnline: config.isOnline,
-      swapSelectedOwnIndex: null,
+      swapSource: null,
       turnTimer: TURN_TIMER_SECONDS,
       turnTimerMax: TURN_TIMER_SECONDS,
+      isDiscardBurned: false,
     });
 
     // If first seat is AI, trigger AI turn
@@ -169,6 +172,12 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     const current = players[currentTurnSeat];
     if (!current.isLocal) return;
 
+    // Rule: Cannot pick up if burned (power used)
+    if (get().isDiscardBurned) {
+      get().addToast('Cannot pick up! Power was used.', 'warning');
+      return;
+    }
+
     const drawnCard = { ...discardPile[discardPile.length - 1], isFaceUp: true };
     set({
       discardPile: discardPile.slice(0, -1),
@@ -178,7 +187,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     });
   },
 
-  swapWithHand: (handIndex: number) => {
+  swapWithHand: (handIndex: number, usePower: boolean = true) => {
     const { drawnCard, players, currentTurnSeat, discardPile, phase, aiMemories } = get();
     if (phase !== 'turn_decision' || !drawnCard) return;
     const current = players[currentTurnSeat];
@@ -190,7 +199,8 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     const newPlayers = players.map((p) => ({ ...p, hand: [...p.hand] }));
     const newHand = newPlayers[currentTurnSeat].hand;
     const removedCard = { ...newHand[handIndex], isFaceUp: true };
-    newHand[handIndex] = { ...drawnCard, isFaceUp: false };
+    // Reset powerUsed when card enters hand, so it can be used again if discarded later
+    newHand[handIndex] = { ...drawnCard, isFaceUp: false, powerUsed: false };
 
     const newDiscardPile = [...discardPile, removedCard];
 
@@ -209,7 +219,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       newMemories.set(aiSeat, updated);
     }
 
-    const power = getCardPower(removedCard);
+    const power = usePower ? getCardPower(removedCard) : null;
 
     set({
       players: newPlayers,
@@ -220,20 +230,23 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     });
 
     if (power) {
+      removedCard.powerUsed = true; // Mark as permanently used
       get().addToast(`${removedCard.isJoker ? 'Joker' : removedCard.rank} power: ${powerName(power)}!`, 'power');
-      set({ activePower: power, powerSourceSeat: currentTurnSeat, phase: 'power_target' });
+      set({ activePower: power, powerSourceSeat: currentTurnSeat, phase: 'power_target', isDiscardBurned: true });
     } else {
+      // Normal discard, safe to pick up next turn
+      set({ isDiscardBurned: false });
       get()._endTurn();
     }
   },
 
-  discardDrawn: () => {
+  discardDrawn: (usePower: boolean = true) => {
     const { drawnCard, discardPile, phase, aiMemories } = get();
     if (phase !== 'turn_decision' || !drawnCard) return;
 
     const discarded = { ...drawnCard, isFaceUp: true };
     const newDiscardPile = [...discardPile, discarded];
-    const power = getCardPower(discarded);
+    const power = usePower ? getCardPower(discarded) : null;
 
     // Update AI memories
     const newMemories = new Map(aiMemories);
@@ -253,17 +266,23 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     });
 
     if (power) {
+      discarded.powerUsed = true; // Mark as permanently used
       get().addToast(`${discarded.isJoker ? 'Joker' : discarded.rank} power: ${powerName(power)}!`, 'power');
-      set({ activePower: power, powerSourceSeat: get().currentTurnSeat, phase: 'power_target' });
+      set({ activePower: power, powerSourceSeat: get().currentTurnSeat, phase: 'power_target', isDiscardBurned: true });
     } else {
+      // Normal discard
+      set({ isDiscardBurned: false });
       get()._endTurn();
     }
   },
 
   selectPowerTarget: (targetSeat: number, targetIndex: number) => {
     const state = get();
-    const { activePower, players, currentTurnSeat, aiMemories, swapSelectedOwnIndex } = state;
+    const { activePower, players, currentTurnSeat, aiMemories, swapSource } = state;
     if (!activePower) return;
+
+    // For mass_swap, use rotateHands instead
+    if (activePower === 'mass_swap') return;
 
     const newPlayers = players.map((p) => ({ ...p, hand: [...p.hand] }));
     const currentPlayer = newPlayers[currentTurnSeat];
@@ -307,45 +326,66 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         return;
       }
       case 'swap': {
-        // Two-step: first select own card, then opponent card
-        if (targetSeat === currentTurnSeat) {
-          // Selecting own card
-          currentPlayer.hand.forEach((c, i) => {
-            currentPlayer.hand[i] = { ...c, isSelected: i === targetIndex };
-          });
-          set({ players: newPlayers, swapSelectedOwnIndex: targetIndex });
-          return; // Wait for opponent card
+        // Global Swap: Can swap ANY two cards on the board
+        const { swapSource } = get();
+
+        if (swapSource === null) {
+          // First selection
+          if (newPlayers[targetSeat].hand[targetIndex].isLocked) {
+            get().addToast('Cannot select a locked card!', 'warning');
+            return; // Don't end turn, user must pick valid card
+          }
+
+          // Mark first card as selected
+          newPlayers[targetSeat].hand[targetIndex] = {
+            ...newPlayers[targetSeat].hand[targetIndex],
+            isSelected: true
+          };
+
+          get().addToast('Select second card to swap.', 'info');
+          set({ players: newPlayers, swapSource: { seat: targetSeat, index: targetIndex } });
+          return; // Wait for second click
         }
 
-        // Selecting opponent card
-        const ownIdx = swapSelectedOwnIndex;
-        if (ownIdx === null) {
-          get().addToast('Select your own card first!', 'warning');
+        // Second selection
+        // Check if same card clicked
+        if (swapSource.seat === targetSeat && swapSource.index === targetIndex) {
+          get().addToast('Select a different card!', 'warning');
           return;
         }
+
         if (newPlayers[targetSeat].hand[targetIndex].isLocked) {
-          get().addToast('Cannot swap a locked card!', 'warning');
-          return;
-        }
-        if (currentPlayer.hand[ownIdx].isLocked) {
-          get().addToast('Your selected card is locked!', 'warning');
+          get().addToast('Cannot swap with a locked card!', 'warning');
           return;
         }
 
-        const temp = { ...currentPlayer.hand[ownIdx] };
-        currentPlayer.hand[ownIdx] = { ...newPlayers[targetSeat].hand[targetIndex], isSelected: false };
-        newPlayers[targetSeat].hand[targetIndex] = { ...temp, isSelected: false };
-        currentPlayer.hand.forEach((c, i) => { currentPlayer.hand[i] = { ...c, isSelected: false }; });
+        const sourceSeat = swapSource.seat;
+        const sourceIndex = swapSource.index;
 
-        // Update AI memories
+        // Deselect first card
+        newPlayers[sourceSeat].hand[sourceIndex] = { ...newPlayers[sourceSeat].hand[sourceIndex], isSelected: false };
+
+        // Perform swap
+        const temp = { ...newPlayers[sourceSeat].hand[sourceIndex] };
+        newPlayers[sourceSeat].hand[sourceIndex] = { ...newPlayers[targetSeat].hand[targetIndex] };
+        newPlayers[targetSeat].hand[targetIndex] = { ...temp };
+
+        // Clear selection visual just in case
+        newPlayers[sourceSeat].hand[sourceIndex].isSelected = false;
+        newPlayers[targetSeat].hand[targetIndex].isSelected = false;
+
+        // Update AI memories for both locations
         for (const [aiSeat, mem] of newMemories) {
           const updated = { ...mem, knownCards: new Map(mem.knownCards) };
-          const seatKnownOwn = new Map(updated.knownCards.get(currentTurnSeat) || new Map());
-          seatKnownOwn.delete(ownIdx);
-          updated.knownCards.set(currentTurnSeat, seatKnownOwn);
+
+          const seatKnownSource = new Map(updated.knownCards.get(sourceSeat) || new Map());
+          seatKnownSource.delete(sourceIndex);
+          updated.knownCards.set(sourceSeat, seatKnownSource);
+
           const seatKnownTarget = new Map(updated.knownCards.get(targetSeat) || new Map());
           seatKnownTarget.delete(targetIndex);
           updated.knownCards.set(targetSeat, seatKnownTarget);
+
           newMemories.set(aiSeat, updated);
         }
 
@@ -360,25 +400,6 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         get().addToast(`Locked ${newPlayers[targetSeat].name}'s card #${targetIndex + 1}!`, 'info');
         break;
       }
-      case 'mass_swap': {
-        // Swap all unlocked cards between current player and target
-        for (let i = 0; i < 4; i++) {
-          if (!currentPlayer.hand[i].isLocked && !newPlayers[targetSeat].hand[i].isLocked) {
-            const temp = { ...currentPlayer.hand[i] };
-            currentPlayer.hand[i] = { ...newPlayers[targetSeat].hand[i] };
-            newPlayers[targetSeat].hand[i] = { ...temp };
-          }
-        }
-        // Clear AI memories for swapped seats
-        for (const [aiSeat, mem] of newMemories) {
-          const updated = { ...mem, knownCards: new Map(mem.knownCards) };
-          updated.knownCards.set(currentTurnSeat, new Map());
-          updated.knownCards.set(targetSeat, new Map());
-          newMemories.set(aiSeat, updated);
-        }
-        get().addToast(`Mass swap with ${newPlayers[targetSeat].name}!`, 'power');
-        break;
-      }
     }
 
     set({
@@ -386,8 +407,67 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       activePower: null,
       powerSourceSeat: null,
       aiMemories: newMemories,
-      swapSelectedOwnIndex: null,
+      swapSource: null,
     });
+
+    get()._endTurn();
+  },
+
+  rotateHands: (direction: 'left' | 'right') => {
+    const { activePower, players, aiMemories } = get();
+    if (activePower !== 'mass_swap') return;
+
+    const newPlayers = players.map((p) => ({ ...p, hand: [...p.hand] }));
+    const count = newPlayers.length; // 4
+
+    // Rotate hands logic:
+    // Left: P0 gets P1's hand, P1 gets P2's hand, etc.
+    // Wait, visually:
+    // P0 (South) -> P1 (West) -> P2 (North) -> P3 (East) -> P0 (South)
+    // Left Rotation = Hands shift to the Left Player.
+    // P0's hand goes to P1. P1's hand goes to P2.
+    // New P0 Hand = Old P3 Hand.
+    // New P[i] Hand = Old P[i-1] Hand.
+
+    if (direction === 'left') {
+      const lastHand = newPlayers[count - 1].hand;
+      for (let i = count - 1; i > 0; i--) {
+        newPlayers[i].hand = newPlayers[i - 1].hand;
+      }
+      newPlayers[0].hand = lastHand;
+    } else {
+      // Right Rotation
+      // Hand moves to Right Player: P0 -> P3.
+      // P3's Hand comes from P0.
+      // New P[i] Hand = Old P[i+1] Hand.
+      const firstHand = newPlayers[0].hand;
+      for (let i = 0; i < count - 1; i++) {
+        newPlayers[i].hand = newPlayers[i + 1].hand;
+      }
+      newPlayers[count - 1].hand = firstHand;
+    }
+
+    // Wipe memories because total chaos
+    let newMemories = new Map();
+    players.forEach((p) => {
+      if (p.kind === 'ai') {
+        newMemories.set(p.seatIndex, { knownCards: new Map(), discardedCards: [...(aiMemories.get(p.seatIndex)?.discardedCards || [])] });
+      }
+    });
+
+    get().addToast(`Global Swap! Hands rotated to the ${direction.toUpperCase()}!`, 'power');
+
+    set({
+      players: newPlayers,
+      activePower: null,
+      powerSourceSeat: null,
+      aiMemories: newMemories,
+      swapSource: null,
+    });
+
+    // Note: If rotated, the 'discard pile' didn't technically receive a new top card via normal discard action here,
+    // but the 'power action' triggered it. The flag should already be set to true by the trigger.
+    // However, mass swap is chaotic. Let's keep isDiscardBurned = true because a power WAS used.
 
     get()._endTurn();
   },
@@ -408,17 +488,18 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
     set({
       currentTurnSeat: nextSeat,
       turnCount,
-      swapSelectedOwnIndex: null,
+      swapSource: null,
     });
 
     if (nextPlayer.kind === 'ai') {
-      set({ phase: 'turn_draw' }); // Show AI is drawing
-      setTimeout(() => get().executeAITurn(nextSeat), 1000);
+      set({ phase: 'turn_draw' }); // Show AI is drawing/thinking
+      // Random delay 5-10 seconds
+      const delay = Math.floor(Math.random() * 5000) + 5000;
+      setTimeout(() => get().executeAITurn(nextSeat), delay);
     } else if (nextPlayer.isLocal) {
       set({ phase: 'turn_draw' });
       get()._startTimer();
     }
-    // If remote human (online), phase stays and we wait for WS message
   },
 
   executeAITurn: (seat: number) => {
@@ -467,37 +548,46 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
         newPlayers[seat].hand[idx] = { ...drawnCard, isFaceUp: false };
         newDiscardPile.push(removed);
 
-        newMemory = updateMemory(newMemory, seat, idx, drawnCard);
         newMemory.discardedCards.push(removed);
 
-        get().addToast(`${aiPlayer.name} swapped a card`, 'info');
-
+        // AI Logic for swap
         const power = getCardPower(removed);
         if (power) {
+          removed.powerUsed = true; // Mark as permanently used
           get().addToast(`${aiPlayer.name} used ${removed.isJoker ? 'Joker' : removed.rank}: ${powerName(power)}!`, 'power');
+          set({ isDiscardBurned: true }); // AI used power
           const powerDecision = aiPowerTarget(difficulty, power, seat, newPlayers[seat].hand, opponents, newMemory);
           if (powerDecision) {
-            applyAIPower(powerDecision, seat, newPlayers, newMemory, get().addToast);
+            applyAIPower(powerDecision, seat, newPlayers, newMemory, get().addToast, get().rotateHands);
           }
+        } else {
+          set({ isDiscardBurned: false }); // Normal swap discard
         }
       } else {
         newDiscardPile.push({ ...drawnCard, isFaceUp: true });
         newMemory.discardedCards.push(drawnCard);
+        // "Discarded drawn card" path
+        const power = getCardPower(drawnCard);
+        // ... (logic continues in else block)
       }
     } else {
       const discarded = { ...drawnCard, isFaceUp: true };
       newDiscardPile.push(discarded);
       newMemory.discardedCards.push(discarded);
 
+      set({ isDiscardBurned: false }); // Default false, set true if power used below
+
       const power = getCardPower(discarded);
       if (power) {
+        discarded.powerUsed = true; // Mark as permanently used
         get().addToast(`${aiPlayer.name} used ${discarded.isJoker ? 'Joker' : discarded.rank}: ${powerName(power)}!`, 'power');
+        set({ isDiscardBurned: true }); // AI used power
         const opponents2: Opponent[] = newPlayers
           .filter((p) => p.seatIndex !== seat)
           .map((p) => ({ seatIndex: p.seatIndex, hand: p.hand }));
         const powerDecision = aiPowerTarget(difficulty, power, seat, newPlayers[seat].hand, opponents2, newMemory);
         if (powerDecision) {
-          applyAIPower(powerDecision, seat, newPlayers, newMemory, get().addToast);
+          applyAIPower(powerDecision, seat, newPlayers, newMemory, get().addToast, get().rotateHands);
         }
       }
     }
@@ -570,7 +660,7 @@ export const useGameStore = create<GameState & GameActions>((set, get) => ({
       get().discardDrawn();
     } else if (phase === 'power_target' && activePower) {
       // Auto-skip power: just end the turn without using the power
-      set({ activePower: null, powerSourceSeat: null, swapSelectedOwnIndex: null });
+      set({ activePower: null, powerSourceSeat: null, swapSource: null });
       get()._endTurn();
     }
   },
@@ -628,7 +718,8 @@ function applyAIPower(
   aiSeat: number,
   newPlayers: PlayerInfo[],
   memory: AIMemory,
-  addToast: (msg: string, type?: Toast['type']) => void
+  addToast: (msg: string, type?: Toast['type']) => void,
+  rotateHands?: (direction: 'left' | 'right') => void
 ) {
   const aiPlayer = newPlayers[aiSeat];
 
@@ -681,18 +772,12 @@ function applyAIPower(
       break;
     }
     case 'mass_swap': {
-      const ownHand = newPlayers[aiSeat].hand;
-      const targetHand = newPlayers[decision.targetSeat].hand;
-      for (let i = 0; i < 4; i++) {
-        if (!ownHand[i].isLocked && !targetHand[i].isLocked) {
-          const temp = { ...ownHand[i] };
-          ownHand[i] = { ...targetHand[i] };
-          targetHand[i] = { ...temp };
-        }
+      if (rotateHands) {
+        // AI chooses random direction or simple heuristic?
+        // Since logic supports Left/Right, let's just pick one.
+        const dir = Math.random() > 0.5 ? 'left' : 'right';
+        rotateHands(dir);
       }
-      memory.knownCards.set(aiSeat, new Map());
-      memory.knownCards.set(decision.targetSeat, new Map());
-      addToast(`${aiPlayer.name} used Mass Swap with ${newPlayers[decision.targetSeat].name}!`, 'power');
       break;
     }
   }
