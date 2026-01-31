@@ -6,7 +6,7 @@
 import { createServer } from 'http';
 import { initSocketServer } from '@/server/ws-server';
 
-const port = parseInt(process.env.WS_PORT || '3001', 10);
+const port = parseInt(process.env.PORT || process.env.WS_PORT || '3001', 10);
 
 const httpServer = createServer();
 initSocketServer(httpServer);
