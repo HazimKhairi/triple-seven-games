@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "A strategic card game where the lowest score wins. Play against AI with power cards!",
 };
 
+import { Analytics } from "@vercel/analytics/next";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -28,6 +30,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-zinc-950`}
       >
         {children}
+        <Analytics />
       </body>
     </html>
   );
