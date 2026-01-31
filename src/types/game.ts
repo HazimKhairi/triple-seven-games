@@ -59,6 +59,7 @@ export interface Toast {
   message: string;
   type: 'info' | 'power' | 'warning' | 'success';
   seatIndex?: number;
+  timestamp?: number;
 }
 
 export interface SeatConfig {
@@ -99,6 +100,14 @@ export interface GameState {
   masterVolume: number;
   musicVolume: number;
   sfxVolume: number;
+  cardAnimations: CardAnimation[];
+  isPaused: boolean;
+}
+
+export interface CardAnimation {
+  seatIndex: number;
+  cardIndex: number;
+  type: 'swap' | 'mass_swap';
 }
 
 // Helper to get the image path for a card

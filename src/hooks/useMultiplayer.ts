@@ -34,7 +34,17 @@ export function useMultiplayer() {
 
     setState((s) => ({ ...s, isConnecting: true, error: null }));
 
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'http://localhost:3001';
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    // Default to port 3001 for dev server if not in env, but if on same host, maybe use that?
+    // Actually, usually Next.js dev server runs on 3000, and we might have a separate socket server.
+    // However, if the user is running `server.ts` which combines both, port might be 3000.
+    // Let's assume the socket server is on the same host but maybe different port if specified, 
+    // or fallback to the same host with port 3000 or the env var.
+
+    // Simplest fix for "localhost" issue: use window.location.hostname instead of hardcoded localhost
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || `${protocol}//${hostname}:3001`;
+
     const socket = io(wsUrl, {
       path: '/api/socket',
       transports: ['websocket', 'polling'],
@@ -146,16 +156,16 @@ export function useMultiplayer() {
         card !== null
           ? card
           : {
-              // Hidden card placeholder
-              id: `hidden-${pv.seatIndex}-${i}`,
-              suit: null,
-              rank: null,
-              isJoker: false,
-              isFaceUp: false,
-              isLocked: false,
-              isSelected: false,
-              isPeeking: false,
-            } as Card
+            // Hidden card placeholder
+            id: `hidden-${pv.seatIndex}-${i}`,
+            suit: null,
+            rank: null,
+            isJoker: false,
+            isFaceUp: false,
+            isLocked: false,
+            isSelected: false,
+            isPeeking: false,
+          } as Card
       ),
       score: pv.score,
       isLocal: pv.isLocal,

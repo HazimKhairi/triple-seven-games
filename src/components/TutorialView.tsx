@@ -72,10 +72,10 @@ const TUTORIAL_STEPS = [
 const MOCK_HIDDEN_CARD: CardType = { id: 'm-0', suit: 'spades', rank: '7', isFaceUp: false, isLocked: false, isJoker: false, isSelected: false, isPeeking: false };
 const MOCK_FACE_CARD: CardType = { id: 'm-1', suit: 'diamonds', rank: '7', isFaceUp: true, isLocked: false, isJoker: false, isSelected: false, isPeeking: false };
 
-const PLAYER_SOUTH = { id: 'p1', seatIndex: 0, kind: 'human' as const, name: 'You', isLocal: true, score: 0, hand: Array(4).fill(MOCK_HIDDEN_CARD) };
-const PLAYER_NORTH = { id: 'p2', seatIndex: 2, kind: 'ai' as const, name: 'AI North', isLocal: false, score: 0, hand: Array(4).fill(MOCK_HIDDEN_CARD) };
-const PLAYER_WEST = { id: 'p3', seatIndex: 1, kind: 'ai' as const, name: 'AI West', isLocal: false, score: 0, hand: Array(4).fill(MOCK_HIDDEN_CARD) };
-const PLAYER_EAST = { id: 'p4', seatIndex: 3, kind: 'ai' as const, name: 'AI East', isLocal: false, score: 0, hand: Array(4).fill(MOCK_HIDDEN_CARD) };
+const PLAYER_SOUTH = { id: 'p1', seatIndex: 0, kind: 'human' as const, name: 'You', isLocal: true, score: 0, hand: Array.from({ length: 4 }, (_, i) => ({ ...MOCK_HIDDEN_CARD, id: `p1-c${i}` })) };
+const PLAYER_NORTH = { id: 'p2', seatIndex: 2, kind: 'ai' as const, name: 'AI North', isLocal: false, score: 0, hand: Array.from({ length: 4 }, (_, i) => ({ ...MOCK_HIDDEN_CARD, id: `p2-c${i}` })) };
+const PLAYER_WEST = { id: 'p3', seatIndex: 1, kind: 'ai' as const, name: 'AI West', isLocal: false, score: 0, hand: Array.from({ length: 4 }, (_, i) => ({ ...MOCK_HIDDEN_CARD, id: `p3-c${i}` })) };
+const PLAYER_EAST = { id: 'p4', seatIndex: 3, kind: 'ai' as const, name: 'AI East', isLocal: false, score: 0, hand: Array.from({ length: 4 }, (_, i) => ({ ...MOCK_HIDDEN_CARD, id: `p4-c${i}` })) };
 
 export default function TutorialView() {
     const { setPhase } = useGameStore();
@@ -121,22 +121,39 @@ export default function TutorialView() {
             </div>
 
             {/* TUTORIAL CARD / DIALOG */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md z-[50] pointer-events-auto px-4">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl z-[50] pointer-events-auto px-4 flex flex-col sm:flex-row items-end sm:items-center gap-4">
+
+                {/* Mat Jenin Character */}
+                <motion.div
+                    initial={{ x: -50, opacity: 0 }}
+                    animate={{ x: 0, opacity: 1 }}
+                    className="w-40 sm:w-52 shrink-0 drop-shadow-2xl"
+                >
+                    <img src="/mat_jenin.png" alt="Mat Jenin" className="w-full h-auto drop-shadow-lg" />
+                </motion.div>
+
                 <motion.div
                     key={step.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="bg-zinc-900/95 border border-zinc-700 p-6 rounded-2xl shadow-2xl backdrop-blur-xl"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="flex-1 bg-zinc-900/95 border border-amber-500/30 p-6 rounded-2xl shadow-2xl backdrop-blur-xl relative"
                 >
+                    {/* Speech Bubble Tail (Desktop) */}
+                    <div className="hidden sm:block absolute top-1/2 -left-3 -translate-y-1/2 w-0 h-0 border-t-[10px] border-t-transparent border-r-[12px] border-r-zinc-900/95 border-b-[10px] border-b-transparent" />
+
                     <div className="flex items-center gap-2 mb-3">
-                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 text-xs font-bold uppercase">
+                        <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400 text-xs font-bold uppercase border border-amber-500/30">
+                            Mat Jenin Says:
+                        </span>
+                        <span className="text-xs text-zinc-500 ml-auto">
                             Step {stepIndex + 1}/{TUTORIAL_STEPS.length}
                         </span>
-                        <h2 className="text-xl font-bold text-white text-shadow">{step.title}</h2>
                     </div>
 
-                    <p className="text-zinc-300 leading-relaxed mb-6 min-h-[60px]">
-                        {step.text}
+                    <h2 className="text-xl font-bold text-white text-shadow mb-2 text-amber-200">{step.title}</h2>
+
+                    <p className="text-zinc-300 leading-relaxed mb-6 min-h-[60px] font-medium">
+                        "{step.text}"
                     </p>
 
                     <div className="flex items-center justify-between gap-4">
@@ -150,9 +167,9 @@ export default function TutorialView() {
 
                         <button
                             onClick={handleNext}
-                            className="flex items-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-bold hover:scale-105 transition-transform shadow-lg shadow-white/10"
+                            className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-xl font-bold hover:scale-105 transition-transform shadow-lg shadow-amber-900/20"
                         >
-                            {stepIndex === TUTORIAL_STEPS.length - 1 ? "Finish" : (step.action === 'draw' ? "Draw Card" : step.action === 'swap' ? "Swap Card" : "Next")}
+                            {stepIndex === TUTORIAL_STEPS.length - 1 ? "Start Game!" : (step.action === 'draw' ? "Draw Card!" : step.action === 'swap' ? "Swap It!" : "Got it!")}
                             <ArrowRight className="w-4 h-4" />
                         </button>
                     </div>

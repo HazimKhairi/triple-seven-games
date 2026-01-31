@@ -73,20 +73,31 @@ export default function GameBoard() {
     startGame,
     resetGame,
     setPhase, // destructure setPhase
+    isPaused,
+    pauseGame,
+    resumeGame,
   } = useGameStore();
 
   const mp = useMultiplayer();
   const [powerDecision, setPowerDecision] = useState<{ type: 'discard' | 'swap', card?: CardType, handIndex?: number } | null>(null);
   const [showEmotes, setShowEmotes] = useState(false);
   const [dismissedPowerCardId, setDismissedPowerCardId] = useState<string | null>(null);
-  const [isPaused, setIsPaused] = useState(false);
 
   // Play Joker sound when Mass Swap activates
   useEffect(() => {
     if (activePower === 'mass_swap') {
+      console.log('Attempting to play joker sound...');
       const audio = new Audio('/joker_laugh.mp3');
-      audio.volume = 0.5;
-      audio.play().catch(() => { });
+      audio.volume = 0.6; // Slightly louder
+      audio.play()
+        .then(() => {
+          console.log('Joker sound playing');
+          setTimeout(() => {
+            audio.pause();
+            audio.currentTime = 0;
+          }, 2000);
+        })
+        .catch((e) => console.error('Failed to play joker sound:', e));
     }
   }, [activePower]);
 
@@ -455,6 +466,12 @@ export default function GameBoard() {
             <Layers className="w-3 h-3 text-zinc-500" />
             <span className="text-xs text-zinc-500">{deck.length} left</span>
           </div>
+          <button
+            onClick={pauseGame}
+            className="p-1.5 rounded-lg bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors ml-2"
+          >
+            <Pause className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -741,6 +758,72 @@ export default function GameBoard() {
           </button>
         </div>
       </AnimatePresence>
+
+      <AnimatePresence>
+        {isPaused && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <PauseMenu onResume={resumeGame} onQuit={() => { resetGame(); setPhase('menu'); }} />
+          </div>
+        )}
+      </AnimatePresence>
+
+      <IntroOverlay onStart={() => {
+        // Game start logic if needed
+      }} />
+
     </div>
+  );
+}
+
+function IntroOverlay({ onStart }: { onStart: () => void }) {
+  const [visible, setVisible] = useState(true);
+
+  if (!visible) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md"
+    >
+      <div className="relative flex flex-col items-center justify-center w-full max-w-lg p-8">
+        {/* Mat Jenin Image */}
+        <motion.div
+          initial={{ scale: 0, y: 100 }}
+          animate={{ scale: 1, y: 0 }}
+          transition={{ type: "spring", bounce: 0.5, duration: 0.8 }}
+          className="relative z-10 w-64 h-64 sm:w-80 sm:h-80 mb-6"
+        >
+          <img
+            src="/mat_jenin.png"
+            alt="Mat Jenin"
+            className="w-full h-full object-contain drop-shadow-[0_0_50px_rgba(251,191,36,0.5)]"
+          />
+        </motion.div>
+
+        {/* Text Board */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5 }}
+          className="bg-zinc-900/90 border border-amber-500/50 p-6 rounded-2xl text-center relative z-0 -mt-10 pt-12 shadow-2xl w-full"
+        >
+          <h1 className="text-3xl sm:text-4xl font-black text-amber-400 mb-2 tracking-wide font-serif">
+            Welcome to The Arena!
+          </h1>
+          <p className="text-zinc-300 italic text-lg mb-6">
+            "Dare to challenge me? Hahaha!"
+          </p>
+
+          <button
+            onClick={() => { setVisible(false); onStart(); }}
+            className="w-full py-4 px-8 bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-bold text-xl rounded-xl shadow-lg shadow-red-900/50 transform hover:scale-105 transition-all border border-red-400/30"
+          >
+            FIGHT!
+          </button>
+        </motion.div>
+      </div>
+    </motion.div>
   );
 }

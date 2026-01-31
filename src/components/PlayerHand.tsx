@@ -1,9 +1,8 @@
-'use client';
-
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import Card from './Card';
 import { PlayerInfo, SeatPosition } from '@/types/game';
-import { Crown, Bot, User } from 'lucide-react';
+import { Crown, Bot, User, Swords, Shuffle } from 'lucide-react';
+import { useGameStore } from '@/store/game-store';
 
 interface PlayerHandProps {
   player: PlayerInfo;
@@ -28,6 +27,7 @@ export default function PlayerHand({
 }: PlayerHandProps) {
   const isVertical = position === 'west' || position === 'east';
   const cardSize = isVertical ? 'sm' : 'md';
+  const cardAnimations = useGameStore((state) => state.cardAnimations);
 
   const isActive = isCurrentTurn || disableBlur;
 
@@ -60,22 +60,49 @@ export default function PlayerHand({
       <div
         className={`flex ${isVertical ? 'flex-col' : 'flex-row'} gap-1 sm:gap-2`}
       >
-        {player.hand.map((card, i) => (
-          <div
-            key={card.id}
-            className={isVertical ? 'transform-gpu' : ''}
-            style={isVertical ? { transform: `rotate(${position === 'west' ? 90 : -90}deg)` } : undefined}
-          >
-            <Card
-              card={card}
-              onClick={() => onCardClick?.(i)}
-              isInteractive={isInteractive}
-              showFace={showFaces ? true : card.isFaceUp || card.isPeeking}
-              size={cardSize}
-              delay={i * 0.05}
-            />
-          </div>
-        ))}
+        {player.hand.map((card, i) => {
+          const animation = cardAnimations.find(
+            (a) => a.seatIndex === player.seatIndex && a.cardIndex === i
+          );
+
+          return (
+            <div
+              key={card.id}
+              className={`relative ${isVertical ? 'transform-gpu' : ''}`}
+              style={isVertical ? { transform: `rotate(${position === 'west' ? 90 : -90}deg)` } : undefined}
+            >
+              <Card
+                card={card}
+                onClick={() => onCardClick?.(i)}
+                isInteractive={isInteractive}
+                showFace={showFaces ? true : card.isFaceUp || card.isPeeking}
+                size={cardSize}
+                delay={i * 0.05}
+              />
+
+              {/* Swap Animation Overlay */}
+              <AnimatePresence>
+                {animation && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.5 }}
+                    animate={{ opacity: 1, scale: 1.1 }}
+                    exit={{ opacity: 0, scale: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[1px] rounded-lg pointer-events-none"
+                  >
+                    <div className="p-1.5 bg-amber-500 rounded-full shadow-lg shadow-amber-500/50">
+                      {animation.type === 'mass_swap' ? (
+                        <Shuffle className="w-6 h-6 text-white animate-spin-slow" />
+                      ) : (
+                        <Swords className="w-6 h-6 text-white" />
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          );
+        })}
       </div>
 
     </motion.div>

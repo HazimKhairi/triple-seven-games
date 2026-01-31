@@ -105,6 +105,15 @@ export default function PauseMenu({ onResume, onQuit }: PauseMenuProps) {
                         <Home className="w-5 h-5" />
                         Quit to Menu
                     </button>
+
+                    {/* Restart Button */}
+                    <button
+                        onClick={() => { onQuit(); setTimeout(() => window.location.reload(), 100); }}
+                        className="flex items-center justify-center gap-2 w-full py-2 text-sm text-zinc-500 hover:text-amber-400 transition-colors mt-2"
+                    >
+                        <RotateCcw className="w-4 h-4" />
+                        Restart Level
+                    </button>
                 </div>
             </motion.div>
         </motion.div>

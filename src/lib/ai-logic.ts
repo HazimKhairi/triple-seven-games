@@ -5,6 +5,8 @@ import {
   getCardValue,
   getCardPower,
   PowerType,
+  PlayerInfo,
+  Toast,
 } from '@/types/game';
 
 export interface AIDecision {
@@ -422,4 +424,71 @@ export function clearMemoryForSeat(memory: AIMemory, seatIndex: number, cardInde
     knownCards: newKnown,
     discardedCards: [...memory.discardedCards],
   };
+}
+
+export function applyAIPower(
+  decision: AIPowerDecision,
+  aiSeat: number,
+  players: PlayerInfo[],
+  memory: AIMemory,
+  addToast: (msg: string, type?: Toast['type'], seat?: number) => void,
+  rotateHands: (dir: 'left' | 'right') => void,
+  triggerAnimation: (seat: number, index: number, type: 'swap' | 'mass_swap') => void
+) {
+  const { power, targetSeat, targetIndex } = decision;
+
+  switch (power) {
+    case 'unlock': {
+      if (players[targetSeat].hand[targetIndex].isLocked) {
+        players[targetSeat].hand[targetIndex].isLocked = false;
+        addToast(`${players[aiSeat].name} unlocked ${players[targetSeat].name}'s card!`, 'info', aiSeat);
+      }
+      break;
+    }
+    case 'lock': {
+      if (!players[targetSeat].hand[targetIndex].isLocked) {
+        players[targetSeat].hand[targetIndex].isLocked = true;
+        addToast(`${players[aiSeat].name} locked ${players[targetSeat].name}'s card!`, 'info', aiSeat);
+      }
+      break;
+    }
+    case 'peek': {
+      // AI "peeks" -> updates its memory
+      const targetCard = players[targetSeat].hand[targetIndex];
+      if (!targetCard.isLocked) {
+        updateMemory(memory, targetSeat, targetIndex, targetCard);
+        addToast(`${players[aiSeat].name} peeked at ${players[targetSeat].name}'s card!`, 'info', aiSeat);
+      } else {
+        addToast(`${players[aiSeat].name} tried to peek but card was locked!`, 'warning', aiSeat);
+      }
+      break;
+    }
+    case 'swap': {
+      // AI swaps its own card (swapOwnIndex) with target
+      const ownIdx = decision.swapOwnIndex;
+      if (ownIdx !== undefined && !players[aiSeat].hand[ownIdx].isLocked && !players[targetSeat].hand[targetIndex].isLocked) {
+        const aiCard = players[aiSeat].hand[ownIdx];
+        const targetCard = players[targetSeat].hand[targetIndex];
+
+        players[aiSeat].hand[ownIdx] = targetCard;
+        players[targetSeat].hand[targetIndex] = aiCard;
+
+        // Update memory: AI knows what it got, and what it gave away
+        updateMemory(memory, aiSeat, ownIdx, targetCard);
+        // AI knows target now has aiCard
+        updateMemory(memory, targetSeat, targetIndex, aiCard);
+
+        triggerAnimation(aiSeat, ownIdx, 'swap');
+        triggerAnimation(targetSeat, targetIndex, 'swap');
+
+        addToast(`${players[aiSeat].name} swapped a card with ${players[targetSeat].name}!`, 'info', aiSeat);
+      }
+      break;
+    }
+    case 'mass_swap': {
+      // AI triggers rotation
+      rotateHands(Math.random() > 0.5 ? 'left' : 'right');
+      break;
+    }
+  }
 }
