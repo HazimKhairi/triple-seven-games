@@ -36,16 +36,28 @@ export function useMultiplayer() {
 
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    // Default to port 3001 for dev server if not in env, but if on same host, maybe use that?
-    // Actually, usually Next.js dev server runs on 3000, and we might have a separate socket server.
-    // However, if the user is running `server.ts` which combines both, port might be 3000.
-    // Let's assume the socket server is on the same host but maybe different port if specified, 
-    // or fallback to the same host with port 3000 or the env var.
 
-    // Simplest fix for "localhost" issue: use window.location.hostname instead of hardcoded localhost
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || `${protocol}//${hostname}:3001`;
+    // Determine WebSocket URL
+    let wsUrl = process.env.NEXT_PUBLIC_WS_URL;
 
-    const socket = io(wsUrl, {
+    if (!wsUrl) {
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        // Local development fallback
+        wsUrl = `${protocol}//${hostname}:3001`;
+      } else {
+        // Production fallback (likely incorrect without env var, but better than blindly adding port 3001 to a Vercel domain)
+        console.warn('Missing NEXT_PUBLIC_WS_URL environment variable inside useMultiplayer.ts. WebSocket connection may fail.');
+        // Try to connect to the same host/port if it's a combined server, otherwise this will likely fail 
+        // but cleaner than the previous error. 
+        // For now, let's just default to the window location but we know 3001 is wrong for Vercel.
+        // We will just leave it undefined so socket.io defaults to window.location (relative) 
+        // which would work if we had a combined Next.js+Socket server (custom server), 
+        // but on Vercel this will plain fail 404, which is expected if not configured.
+        wsUrl = undefined;
+      }
+    }
+
+    const socket = io(wsUrl || '', {
       path: '/api/socket',
       transports: ['websocket', 'polling'],
     });
