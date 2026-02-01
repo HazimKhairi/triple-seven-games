@@ -53,6 +53,25 @@ body {
   }
 }
 
+
+/* Responsive layout adjustments */
+@media (max-width: 640px) {
+  .mobile-compact-card {
+    height: 4.5rem; /* ~72px */
+    width: 3.2rem;
+  }
+}
+
+/* Ensure full height on mobile with dynamic viewport units */
+html, body {
+  height: 100%;
+}
+@supports (height: 100dvh) {
+  html, body {
+    height: 100dvh;
+  }
+}
+
 .sm\:w-30 {
   @media (min-width: 640px) {
     width: 7.5rem;

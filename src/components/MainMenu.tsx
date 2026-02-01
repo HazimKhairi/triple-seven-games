@@ -137,7 +137,7 @@ export default function MainMenu({
             </div>
 
             {/* Left Content Container */}
-            <div className="relative z-10 flex flex-col justify-center h-full px-8 md:px-24 w-full md:max-w-3xl">
+            <div className="relative z-10 flex flex-col justify-center h-full px-6 md:px-24 w-full md:max-w-3xl overflow-y-auto md:overflow-hidden pb-10 md:pb-0">
 
                 {/* Logo Area */}
                 <motion.div
@@ -146,7 +146,7 @@ export default function MainMenu({
                     transition={{ duration: 1, ease: "easeOut" }}
                     className="mb-12"
                 >
-                    <h1 className="text-7xl md:text-9xl font-black tracking-tighter text-white drop-shadow-2xl">
+                    <h1 className="text-6xl md:text-9xl font-black tracking-tighter text-white drop-shadow-2xl">
                         TUJUH
                     </h1>
                     <div className="flex items-center gap-4 mt-2 ml-2">
@@ -156,7 +156,7 @@ export default function MainMenu({
                 </motion.div>
 
                 {/* Animated Menu Panel */}
-                <div className="min-h-[400px]">
+                <div className="min-h-[400px] md:min-h-[400px] flex flex-col">
                     <AnimatePresence mode="wait">
 
                         {/* SPLASH SCREEN */}
