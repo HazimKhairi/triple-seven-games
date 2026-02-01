@@ -193,6 +193,7 @@ export function useMultiplayer() {
       drawnCard: view.drawnCard,
       activePower: view.activePower,
       powerSourceSeat: view.powerSourceSeat,
+      swapSource: view.swapSource,
       turnCount: view.turnCount,
       winnerSeat: view.winnerSeat,
       isOnline: true,

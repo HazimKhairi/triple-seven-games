@@ -291,7 +291,7 @@ export class GameRoom {
       // Skip power
       this.gameState.activePower = null;
       this.gameState.powerSourceSeat = null;
-      this.gameState.swapSelectedOwnIndex = null;
+      this.gameState.swapSource = null;
       // Advance turn manually
       const nextSeat = getNextSeat(seat);
       this.gameState.currentTurnSeat = nextSeat;
@@ -361,6 +361,7 @@ export class GameRoom {
       drawnCard: gs.currentTurnSeat === forSeat ? gs.drawnCard : null,
       activePower: gs.activePower,
       powerSourceSeat: gs.powerSourceSeat,
+      swapSource: gs.swapSource,
       phase: gs.phase,
       turnCount: gs.turnCount,
       winnerSeat: gs.winnerSeat,

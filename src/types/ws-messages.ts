@@ -45,6 +45,7 @@ export interface ClientGameView {
   drawnCard: Card | null;       // only set if it's this client's turn
   activePower: PowerType | null;
   powerSourceSeat: number | null;
+  swapSource: { seat: number; index: number } | null;
   phase: string;
   turnCount: number;
   winnerSeat: number | null;

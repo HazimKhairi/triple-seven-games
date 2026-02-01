@@ -39,7 +39,7 @@ export interface ServerGameState {
   turnCount: number;
   difficulty: Difficulty;
   phase: 'turn_draw' | 'turn_decision' | 'power_target' | 'game_over';
-  swapSelectedOwnIndex: number | null;
+  swapSource: { seat: number; index: number } | null;
 }
 
 export interface GameEvent {
@@ -98,7 +98,7 @@ export function createInitialState(
     turnCount: 0,
     difficulty,
     phase: 'turn_draw',
-    swapSelectedOwnIndex: null,
+    swapSource: null,
   };
 }
 
@@ -269,38 +269,57 @@ export function processPowerTarget(
       break;
     }
     case 'swap': {
-      if (targetSeat === seat) {
-        // Selecting own card
-        currentPlayer.hand.forEach((c, i) => {
-          currentPlayer.hand[i] = { ...c, isSelected: i === targetIndex };
-        });
+      // Global Swap Logic:
+      // 1. If no source selected yet, set source.
+      // 2. If source selected, perform swap with target.
+
+      const { swapSource } = state;
+
+      if (!swapSource) {
+        // Step 1: Select Source
+        if (newPlayers[targetSeat].hand[targetIndex].isLocked) {
+          return { state, events: [{ type: 'toast', message: 'Cannot select locked card', toastType: 'warning' }] };
+        }
+
+        // Mark as selected (visual only, server state tracks it via swapSource)
+        // We need to return state with swapSource set
         return {
-          state: { ...state, players: newPlayers, swapSelectedOwnIndex: targetIndex },
-          events,
+          state: { ...state, players: newPlayers, swapSource: { seat: targetSeat, index: targetIndex } },
+          events: [{ type: 'toast', message: 'Select second card to swap', toastType: 'info' }]
         };
       }
-      const ownIdx = state.swapSelectedOwnIndex;
-      if (ownIdx === null) {
-        return { state, events: [{ type: 'toast', message: 'Select your card first', toastType: 'warning' }] };
-      }
-      if (newPlayers[targetSeat].hand[targetIndex].isLocked || currentPlayer.hand[ownIdx].isLocked) {
-        return { state, events: [{ type: 'toast', message: 'Cannot swap locked card', toastType: 'warning' }] };
-      }
-      const temp = { ...currentPlayer.hand[ownIdx] };
-      currentPlayer.hand[ownIdx] = { ...newPlayers[targetSeat].hand[targetIndex], isSelected: false };
-      newPlayers[targetSeat].hand[targetIndex] = { ...temp, isSelected: false };
-      currentPlayer.hand.forEach((c, i) => { currentPlayer.hand[i] = { ...c, isSelected: false }; });
 
+      // Step 2: Select Target (swapSource is already set)
+      const sourceSeat = swapSource.seat;
+      const sourceIndex = swapSource.index;
+
+      if (sourceSeat === targetSeat && sourceIndex === targetIndex) {
+        return { state, events: [{ type: 'toast', message: 'Select a different card', toastType: 'warning' }] };
+      }
+
+      if (newPlayers[targetSeat].hand[targetIndex].isLocked) {
+        return { state, events: [{ type: 'toast', message: 'Cannot swap with locked card', toastType: 'warning' }] };
+      }
+
+      // Perform Swap
+      const temp = { ...newPlayers[sourceSeat].hand[sourceIndex] };
+      newPlayers[sourceSeat].hand[sourceIndex] = { ...newPlayers[targetSeat].hand[targetIndex] };
+      newPlayers[targetSeat].hand[targetIndex] = { ...temp };
+
+      // Update Memories
       for (const [aiSeat, mem] of newMemories) {
         const updated = { ...mem, knownCards: new Map(mem.knownCards) };
-        const own = new Map(updated.knownCards.get(seat) || new Map());
-        own.delete(ownIdx);
-        updated.knownCards.set(seat, own);
-        const tgt = new Map(updated.knownCards.get(targetSeat) || new Map());
-        tgt.delete(targetIndex);
-        updated.knownCards.set(targetSeat, tgt);
+        const sK = new Map(updated.knownCards.get(sourceSeat) || new Map());
+        sK.delete(sourceIndex);
+        updated.knownCards.set(sourceSeat, sK);
+
+        const tK = new Map(updated.knownCards.get(targetSeat) || new Map());
+        tK.delete(targetIndex);
+        updated.knownCards.set(targetSeat, tK);
+
         newMemories.set(aiSeat, updated);
       }
+
       events.push({ type: 'toast', message: 'Swapped cards!', toastType: 'info' });
       break;
     }
@@ -331,10 +350,10 @@ export function processPowerTarget(
   const newState: ServerGameState = {
     ...state,
     players: newPlayers,
-    activePower: null,
+    activePower: null, // Reset only if action completed (swap step 2, or others)
     powerSourceSeat: null,
     aiMemories: newMemories,
-    swapSelectedOwnIndex: null,
+    swapSource: null,
   };
 
   return advanceTurn(newState, events);
@@ -439,7 +458,7 @@ function advanceTurn(state: ServerGameState, events: GameEvent[]): EngineResult 
       currentTurnSeat: nextSeat,
       turnCount,
       phase: 'turn_draw',
-      swapSelectedOwnIndex: null,
+      swapSource: null,
     },
     events,
   };
